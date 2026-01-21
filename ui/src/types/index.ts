@@ -18,6 +18,9 @@ export interface AskResponse {
   sources: Source[];
   confidence: number;
   time_ms: number;
+  latency_ms?: number | null;
+  // Backwards-compatible fields from backend
+  // (Some endpoints return latency_ms as number)
 }
 
 export interface Source {

@@ -51,10 +51,14 @@ class ApiClient {
 
   // Ask query with fractal navigation
   async ask(request: AskRequest): Promise<AskResponse> {
-    return this.request<AskResponse>('/v1/ask', {
+    const start = Date.now();
+    const res = await this.request<AskResponse>('/v1/ask', {
       method: 'POST',
       body: JSON.stringify(request),
     });
+    // If backend provides latency_ms prefer it, otherwise compute client-side
+    res.latency_ms = res.latency_ms || (Date.now() - start);
+    return res;
   }
 
   // Ingest document
