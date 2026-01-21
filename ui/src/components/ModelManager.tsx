@@ -47,8 +47,22 @@ export const ModelManager = () => {
   }, [strategy]);
 
   const handleFileUpload = async (file: File) => {
-    if (!file.name.endsWith('.gguf')) {
-      setError('Only GGUF files are supported');
+    // Validar extensión
+    if (!file.name.toLowerCase().endsWith('.gguf')) {
+      setError('Only GGUF files (.gguf) are supported');
+      return;
+    }
+
+    // Validar tamaño (máximo 10GB)
+    const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10GB
+    if (file.size > MAX_FILE_SIZE) {
+      setError(`File too large: ${(file.size / (1024 * 1024 * 1024)).toFixed(2)}GB (max: 10GB)`);
+      return;
+    }
+
+    // Validar tamaño mínimo
+    if (file.size < 1024) {
+      setError('File too small to be a valid GGUF model');
       return;
     }
 
@@ -72,7 +86,8 @@ export const ModelManager = () => {
       // Auto-refresh after a delay
       setTimeout(loadModels, 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed');
+      const errorMsg = err instanceof Error ? err.message : 'Upload failed';
+      setError(errorMsg.includes('API Error') ? errorMsg.split(' - ')[1] || errorMsg : errorMsg);
     } finally {
       setUploading(false);
     }
@@ -253,7 +268,7 @@ export const ModelManager = () => {
             {uploading ? 'Uploading...' : 'Drop GGUF model here or click to browse'}
           </p>
           <p className="text-sm text-gray-500 mb-4">
-            Supported formats: .gguf
+            Supported formats: .gguf (max 10GB)
           </p>
           <label className="inline-block">
             <input

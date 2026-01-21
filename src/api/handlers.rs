@@ -717,6 +717,9 @@ pub async fn upload_model(
     use crate::services::ModelConversionService;
     use std::sync::Arc;
     
+    const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024 * 1024; // 10GB
+    const GGUF_MAGIC: u32 = 0x46554747; // "GGUF" en little-endian
+    
     let state = state.read().await;
     
     // Crear directorio para modelos si no existe
@@ -733,11 +736,43 @@ pub async fn upload_model(
         
         if name == "file" {
             file_name = field.file_name().unwrap_or("model.gguf").to_string();
+            
+            // Validar extensión
+            if !file_name.to_lowercase().ends_with(".gguf") {
+                return Err(ApiError::ValidationError(
+                    "Only .gguf files are supported".to_string()
+                ));
+            }
+            
             file_path = format!("{}/{}", models_dir, file_name);
             
             // Escribir archivo
             let data = field.bytes().await?;
             file_size = data.len() as u64;
+            
+            // Validar tamaño
+            if file_size > MAX_FILE_SIZE {
+                return Err(ApiError::ValidationError(
+                    format!("File too large: {} bytes (max: {} bytes)", file_size, MAX_FILE_SIZE)
+                ));
+            }
+            
+            if file_size < 8 {
+                return Err(ApiError::ValidationError(
+                    "File too small to be a valid GGUF model".to_string()
+                ));
+            }
+            
+            // Validar magic number GGUF
+            if data.len() >= 4 {
+                let magic = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                if magic != GGUF_MAGIC {
+                    return Err(ApiError::ValidationError(
+                        format!("Invalid GGUF file: magic number mismatch (expected 0x{:08x}, got 0x{:08x})", 
+                            GGUF_MAGIC, magic)
+                    ));
+                }
+            }
             
             let mut file = fs::File::create(&file_path).await?;
             file.write_all(&data).await?;

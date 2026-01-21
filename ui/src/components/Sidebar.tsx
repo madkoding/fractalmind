@@ -113,7 +113,7 @@ export function Sidebar({ onSettingsClick, onViewChange, currentView = 'chat' }:
         <div className="flex-1 overflow-y-auto p-4">
           <div className="text-sm text-gray-400 space-y-2">
             <p className="font-semibold text-white mb-2">About Fractal Models</p>
-            <p>Upload GGUF model files to convert them into fractal graph structures.</p>
+            <p>Upload GGUF model files (up to 10GB) to convert them into fractal graph structures.</p>
             <p>Fractal models enable hierarchical navigation and efficient inference.</p>
           </div>
         </div>
