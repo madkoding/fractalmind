@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use crate::services::ingestion::extractors::{ExtractorFactory, ContentExtractor};
 use crate::services::ingestion::config::{FileType, IngestionConfig};
+use crate::services::ingestion::chunker::TextChunker;
 use crate::db::queries::NodeRepository;
 
 use crate::cache::{EmbeddingCache, NodeCache};
@@ -101,72 +102,95 @@ pub async fn ingest(
 
     debug!("Ingesting content into namespace: {}", namespace);
 
-    // Check embedding cache first
-    if let Some(cached) = state.embedding_cache.get(&request.content) {
-        debug!("Using cached embedding");
+    // Read config for chunking parameters
+    let config = IngestionConfig::from_env();
+    let chunker = TextChunker::from_config(&config);
+
+    // Split content into chunks
+    let chunking_result = chunker.chunk(&request.content);
+    debug!(
+        "Content split into {} chunks (original length: {} chars)",
+        chunking_result.count(),
+        chunking_result.original_length
+    );
+
+    // Store chunk data before iterating
+    let chunks = chunking_result.chunks;
+
+    // Process each chunk
+    let mut node_ids = Vec::new();
+    let mut embedding_dimension = None;
+
+    for chunk in &chunks {
+        // Check embedding cache first
+        let embedding_vector = if let Some(cached) = state.embedding_cache.get(&chunk.content) {
+            debug!("Using cached embedding for chunk {}", chunk.index);
+            cached
+        } else {
+            // Generate embedding for this chunk
+            let embedding_response = state
+                .brain
+                .embed(&chunk.content)
+                .await
+                .map_err(|e| ApiError::EmbeddingError(format!("Chunk {} failed: {}", chunk.index, e)))?;
+
+            debug!(
+                "Generated embedding for chunk {}: {}D, latency: {}ms",
+                chunk.index, embedding_response.dimension, embedding_response.latency_ms
+            );
+
+            embedding_dimension = Some(embedding_response.dimension);
+
+            // Cache the embedding
+            let embedding_vector = EmbeddingVector::new(
+                embedding_response.embedding.clone(),
+                crate::models::EmbeddingModel::NomicEmbedTextV15,
+            );
+            state.embedding_cache.put(&chunk.content, embedding_vector.clone());
+            embedding_vector
+        };
+
+        // Create metadata with chunk information
+        let mut metadata = NodeMetadata::default();
+        if let Some(source) = &request.source {
+            metadata.source = format!("{} (chunk {}/{})", source, chunk.index + 1, chunk.total);
+        }
+        if let Some(tags) = &request.tags {
+            metadata.tags = tags.clone();
+        }
+        if let Some(lang) = &request.language {
+            metadata.language = lang.clone();
+        }
+
+        // Create fractal node for chunk
+        let _node = FractalNode::new_leaf(
+            chunk.content.clone(),
+            embedding_vector,
+            namespace.clone(),
+            request.source.clone(),
+            metadata,
+        );
+
+        // TODO: Save node to database
+        // let node_repo = NodeRepository::new(&state.db);
+        // let node_id = node_repo.create(&node).await?;
+
         let node_id = Uuid::new_v4().to_string();
-
-        return Ok(Json(IngestResponse {
-            success: true,
-            node_id: Some(node_id),
-            embedding_dimension: Some(cached.dimension),
-            latency_ms: start.elapsed().as_millis() as u64,
-            message: "Content ingested (embedding from cache)".to_string(),
-        }));
+        node_ids.push(node_id);
     }
 
-    // Generate embedding
-    let embedding_response = state
-        .brain
-        .embed(&request.content)
-        .await
-        .map_err(|e| ApiError::EmbeddingError(e.to_string()))?;
-
-    info!(
-        "Generated embedding: {}D, latency: {}ms",
-        embedding_response.dimension, embedding_response.latency_ms
-    );
-
-    // Cache the embedding
-    let embedding_vector = EmbeddingVector::new(
-        embedding_response.embedding.clone(),
-        crate::models::EmbeddingModel::NomicEmbedTextV15,
-    );
-    state.embedding_cache.put(&request.content, embedding_vector.clone());
-
-    // Create metadata
-    let mut metadata = NodeMetadata::default();
-    if let Some(source) = &request.source {
-        metadata.source = source.clone();
-    }
-    if let Some(tags) = &request.tags {
-        metadata.tags = tags.clone();
-    }
-    if let Some(lang) = &request.language {
-        metadata.language = lang.clone();
-    }
-
-    // Create fractal node
-    let _node = FractalNode::new_leaf(
-        request.content.clone(),
-        embedding_vector,
-        namespace,
-        request.source.clone(),
-        metadata,
-    );
-
-    // TODO: Save node to database
-    // let node_repo = NodeRepository::new(&state.db);
-    // let node_id = node_repo.create(&node).await?;
-
-    let node_id = Uuid::new_v4().to_string();
+    let message = if node_ids.len() > 1 {
+        format!("Content ingested successfully ({} chunks created)", node_ids.len())
+    } else {
+        "Content ingested successfully".to_string()
+    };
 
     Ok(Json(IngestResponse {
         success: true,
-        node_id: Some(node_id),
-        embedding_dimension: Some(embedding_response.dimension),
+        node_id: node_ids.first().cloned(),
+        embedding_dimension,
         latency_ms: start.elapsed().as_millis() as u64,
-        message: "Content ingested successfully".to_string(),
+        message,
     }))
 }
 
@@ -311,6 +335,19 @@ pub async fn ingest_file(
     // Use provided namespace or default
     let namespace = namespace.unwrap_or_else(|| "global_knowledge".to_string());
 
+    // Apply chunking to extracted text
+    let chunker = TextChunker::from_config(&config);
+    let chunking_result = chunker.chunk(&extraction.text);
+    debug!(
+        "File content split into {} chunks (original length: {} chars)",
+        chunking_result.count(),
+        chunking_result.original_length
+    );
+
+    // Store chunk metadata before iterating
+    let was_split = chunking_result.was_split();
+    let chunks = chunking_result.chunks;
+
     // Generate embedding (allow tests to disable real model calls)
     let state = state.read().await;
 
@@ -318,88 +355,118 @@ pub async fn ingest_file(
         .map(|v| v == "true")
         .unwrap_or(false);
 
-    let embedding_response = if disable_embedding {
-        // Build a fake embedding response using EMBEDDING_DIMENSION env var
-        let dim = std::env::var("EMBEDDING_DIMENSION")
-            .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(768);
-        crate::models::EmbeddingVector::new(vec![0.0f32; dim], crate::models::EmbeddingModel::NomicEmbedTextV15);
+    // Process each chunk
+    let mut node_ids = Vec::new();
+    let mut embedding_dimension = None;
 
-        // Create a slice and mimic EmbeddingResponse fields inline
-        crate::models::EmbeddingVector::new(vec![0.0f32; dim], crate::models::EmbeddingModel::NomicEmbedTextV15);
+    for chunk in &chunks {
+        let embedding_response = if disable_embedding {
+            // Build a fake embedding response using EMBEDDING_DIMENSION env var
+            let dim = std::env::var("EMBEDDING_DIMENSION")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(768);
+            let embedding_vec = vec![0.0f32; dim];
+            crate::models::llm::traits_llm::EmbeddingResponse {
+                embedding: embedding_vec,
+                dimension: dim,
+                model: "test-mock".to_string(),
+                latency_ms: 0,
+            }
+        } else {
+            // Check embedding cache first
+            if let Some(cached) = state.embedding_cache.get(&chunk.content) {
+                debug!("Using cached embedding for chunk {}", chunk.index);
+                // Convert cached embedding back to EmbeddingResponse format
+                crate::models::llm::traits_llm::EmbeddingResponse {
+                    embedding: cached.vector.clone(),
+                    dimension: cached.dimension,
+                    model: cached.model.model_name().to_string(),
+                    latency_ms: 0,
+                }
+            } else {
+                state
+                    .brain
+                    .embed(&chunk.content)
+                    .await
+                    .map_err(|e| ApiError::EmbeddingError(format!("Chunk {} failed: {}", chunk.index, e)))?
+            }
+        };
 
-        // We'll construct the EmbeddingResponse-like values manually below
-        let embedding_vec = vec![0.0f32; dim];
-        crate::models::llm::traits_llm::EmbeddingResponse {
-            embedding: embedding_vec,
-            dimension: dim,
-            model: "test-mock".to_string(),
-            latency_ms: 0,
+        embedding_dimension = Some(embedding_response.dimension);
+
+        // Cache embedding
+        let embedding_vector = EmbeddingVector::new(
+            embedding_response.embedding.clone(),
+            crate::models::EmbeddingModel::NomicEmbedTextV15,
+        );
+        
+        if !disable_embedding {
+            state.embedding_cache.put(&chunk.content, embedding_vector.clone());
         }
-    } else {
-        state
-            .brain
-            .embed(&extraction.text)
-            .await
-            .map_err(|e| ApiError::EmbeddingError(e.to_string()))?
-    };
 
-    // Cache embedding
-    let embedding_vector = EmbeddingVector::new(
-        embedding_response.embedding.clone(),
-        crate::models::EmbeddingModel::NomicEmbedTextV15,
-    );
-    state.embedding_cache.put(&extraction.text, embedding_vector.clone());
+        // Prepare metadata with chunk information
+        let mut metadata = NodeMetadata::default();
+        let base_filename = filename.clone().unwrap_or_else(|| "uploaded_file".to_string());
+        metadata.source = if was_split {
+            format!("{} (chunk {}/{})", base_filename, chunk.index + 1, chunk.total)
+        } else {
+            base_filename.clone()
+        };
+        metadata.source_type = match file_type {
+            FileType::Pdf => crate::models::SourceType::Pdf,
+            FileType::Image => crate::models::SourceType::Image,
+            FileType::Text => crate::models::SourceType::Text,
+            _ => crate::models::SourceType::Text,
+        };
+        metadata.language = extraction
+            .metadata
+            .language
+            .clone()
+            .or_else(|| language.clone())
+            .unwrap_or_else(|| "en".to_string());
+        if let Some(t) = &tags {
+            metadata.tags = t.clone();
+        }
 
-    // Prepare metadata
-    let mut metadata = NodeMetadata::default();
-    metadata.source = filename.clone().unwrap_or_else(|| "uploaded_file".to_string());
-    metadata.source_type = match file_type {
-        FileType::Pdf => crate::models::SourceType::Pdf,
-        FileType::Image => crate::models::SourceType::Image,
-        FileType::Text => crate::models::SourceType::Text,
-        _ => crate::models::SourceType::Text,
-    };
-    metadata.language = extraction
-        .metadata
-        .language
-        .clone()
-        .or(language)
-        .unwrap_or_else(|| "en".to_string());
-    if let Some(t) = &tags {
-        metadata.tags = t.clone();
+        // Create node for this chunk
+        let node = FractalNode::new_leaf(
+            chunk.content.clone(),
+            embedding_vector,
+            namespace.clone(),
+            filename.clone(),
+            metadata,
+        );
+
+        // Persist (allow tests to skip actual DB writes)
+        let skip_db = std::env::var("TEST_SKIP_DB_WRITES").map(|v| v == "true").unwrap_or(false);
+        let node_id = if skip_db {
+            // Generate a fake node id (UUID) when DB writes are disabled for tests
+            Uuid::new_v4().to_string()
+        } else {
+            let node_repo = NodeRepository::new(&state.db);
+            let created = node_repo
+                .create(&node)
+                .await
+                .map_err(|e| ApiError::DatabaseError(format!("Failed to create node: {}", e)))?;
+            created.to_string()
+        };
+
+        node_ids.push(node_id);
     }
 
-    // Create node
-    let node = FractalNode::new_leaf(
-        extraction.text.clone(),
-        embedding_vector,
-        namespace.clone(),
-        filename.clone(),
-        metadata,
-    );
-
-    // Persist (allow tests to skip actual DB writes)
-    let skip_db = std::env::var("TEST_SKIP_DB_WRITES").map(|v| v == "true").unwrap_or(false);
-    let node_id = if skip_db {
-        // Generate a fake node id (UUID) when DB writes are disabled for tests
-        Uuid::new_v4().to_string()
+    let message = if node_ids.len() > 1 {
+        format!("File ingested successfully ({} chunks created)", node_ids.len())
     } else {
-        let node_repo = NodeRepository::new(&state.db);
-        let created = node_repo
-            .create(&node)
-            .await
-            .map_err(|e| ApiError::DatabaseError(format!("Failed to create node: {}", e)))?;
-        created.to_string()
+        "File ingested successfully".to_string()
     };
 
     Ok(Json(IngestResponse {
         success: true,
-        node_id: Some(node_id),
-        embedding_dimension: Some(embedding_response.dimension),
+        node_id: node_ids.first().cloned(),
+        embedding_dimension,
         latency_ms: start.elapsed().as_millis() as u64,
-        message: "File ingested successfully".to_string(),
+        message,
     }))
 }
 
