@@ -108,3 +108,6 @@ export interface Settings {
   theme: 'light' | 'dark' | 'system';
   contextLimit: number;
 }
+
+// Re-export model types
+export * from './models';

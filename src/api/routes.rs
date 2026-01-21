@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 use axum::{
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
     Router,
 };
 
@@ -39,6 +39,13 @@ fn api_v1_routes() -> Router<SharedState> {
         .route("/sync_rem", post(handlers::sync_rem))
         // Memory management
         .route("/memory", patch(handlers::memory_update))
+        // Model management
+        .route("/models/upload", post(handlers::upload_model))
+        .route("/models/convert", post(handlers::convert_model))
+        .route("/models", get(handlers::list_models))
+        .route("/models/:id", get(handlers::get_model))
+        .route("/models/:id", delete(handlers::delete_model))
+        .route("/config/model-strategy", patch(handlers::update_strategy))
 }
 
 /// Prints all available routes for logging
@@ -53,6 +60,12 @@ pub fn print_routes() {
     tracing::info!("  POST /v1/search     - Vector similarity search");
     tracing::info!("  POST /v1/sync_rem   - Trigger REM phase synchronization");
     tracing::info!("  PATCH /v1/memory    - Update existing memory node");
+    tracing::info!("  POST /v1/models/upload - Upload GGUF model");
+    tracing::info!("  POST /v1/models/convert - Convert model to fractal");
+    tracing::info!("  GET  /v1/models     - List all models");
+    tracing::info!("  GET  /v1/models/:id - Get model details");
+    tracing::info!("  DELETE /v1/models/:id - Delete model");
+    tracing::info!("  PATCH /v1/config/model-strategy - Update model strategy");
 }
 
 #[cfg(test)]

@@ -75,6 +75,18 @@ impl From<anyhow::Error> for ApiError {
     }
 }
 
+impl From<tokio::io::Error> for ApiError {
+    fn from(err: tokio::io::Error) -> Self {
+        ApiError::InternalError(err.to_string())
+    }
+}
+
+impl From<axum::extract::multipart::MultipartError> for ApiError {
+    fn from(err: axum::extract::multipart::MultipartError) -> Self {
+        ApiError::BadRequest(err.to_string())
+    }
+}
+
 /// Result type for API handlers
 pub type ApiResult<T> = Result<T, ApiError>;
 

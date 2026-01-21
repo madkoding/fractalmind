@@ -702,6 +702,208 @@ pub async fn stats(State(state): State<SharedState>) -> Json<StatsResponse> {
     })
 }
 
+// ============================================================================
+// Model Management Handlers
+// ============================================================================
+
+/// Upload a GGUF model file
+pub async fn upload_model(
+    State(state): State<SharedState>,
+    mut multipart: Multipart,
+) -> ApiResult<Json<UploadModelResponse>> {
+    use tokio::fs;
+    use tokio::io::AsyncWriteExt;
+    use crate::models::llm::FractalModel;
+    use crate::services::ModelConversionService;
+    use std::sync::Arc;
+    
+    let state = state.read().await;
+    
+    // Crear directorio para modelos si no existe
+    let models_dir = "/var/tmp/fractalmind_models";
+    fs::create_dir_all(models_dir).await?;
+    
+    let mut file_name = String::new();
+    let mut file_path = String::new();
+    let mut file_size = 0u64;
+    
+    // Procesar multipart upload
+    while let Some(field) = multipart.next_field().await? {
+        let name = field.name().unwrap_or("").to_string();
+        
+        if name == "file" {
+            file_name = field.file_name().unwrap_or("model.gguf").to_string();
+            file_path = format!("{}/{}", models_dir, file_name);
+            
+            // Escribir archivo
+            let data = field.bytes().await?;
+            file_size = data.len() as u64;
+            
+            let mut file = fs::File::create(&file_path).await?;
+            file.write_all(&data).await?;
+        }
+    }
+    
+    if file_path.is_empty() {
+        return Err(ApiError::ValidationError("No file uploaded".to_string()));
+    }
+    
+    // Crear modelo en DB
+    let model = FractalModel::new(file_name.clone(), file_path, file_size);
+    let model_id = model.id.clone();
+    
+    let conversion_service = ModelConversionService::new(Arc::new(state.db.clone()));
+    conversion_service.create_model(&model).await?;
+    
+    Ok(Json(UploadModelResponse {
+        success: true,
+        model_id,
+        message: format!("Model {} uploaded successfully", file_name),
+    }))
+}
+
+/// Convert a model to fractal structure
+pub async fn convert_model(
+    State(state): State<SharedState>,
+    Json(request): Json<ConvertModelRequest>,
+) -> ApiResult<Json<ConvertModelResponse>> {
+    use crate::services::ModelConversionService;
+    use std::sync::Arc;
+    
+    let state = state.read().await;
+    let conversion_service = ModelConversionService::new(Arc::new(state.db.clone()));
+    
+    // Obtener modelo
+    let mut model = conversion_service
+        .get_model(&request.model_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Model not found: {}", request.model_id)))?;
+    
+    // Iniciar conversión en background
+    let db = Arc::new(state.db.clone());
+    let model_id = model.id.clone();
+    
+    tokio::spawn(async move {
+        let service = ModelConversionService::new(db);
+        if let Err(e) = service.convert_model(&mut model).await {
+            error!("Failed to convert model {}: {}", model_id, e);
+        }
+    });
+    
+    Ok(Json(ConvertModelResponse {
+        success: true,
+        message: format!("Model conversion started for {}", request.model_id),
+    }))
+}
+
+/// List all models
+pub async fn list_models(
+    State(state): State<SharedState>,
+) -> ApiResult<Json<ListModelsResponse>> {
+    use crate::services::ModelConversionService;
+    use std::sync::Arc;
+    
+    let state = state.read().await;
+    let conversion_service = ModelConversionService::new(Arc::new(state.db.clone()));
+    
+    let models = conversion_service.list_models().await?;
+    
+    let model_infos: Vec<ModelInfo> = models
+        .into_iter()
+        .map(|m| ModelInfo {
+            id: m.id,
+            name: m.name,
+            status: format!("{:?}", m.status).to_lowercase(),
+            architecture: serde_json::to_value(&m.architecture).ok(),
+            file_size: m.file_size,
+            created_at: m.created_at.to_rfc3339(),
+        })
+        .collect();
+    
+    Ok(Json(ListModelsResponse {
+        models: model_infos,
+    }))
+}
+
+/// Get model details
+pub async fn get_model(
+    State(state): State<SharedState>,
+    axum::extract::Path(model_id): axum::extract::Path<String>,
+) -> ApiResult<Json<GetModelResponse>> {
+    use crate::services::ModelConversionService;
+    use std::sync::Arc;
+    
+    let state = state.read().await;
+    let conversion_service = ModelConversionService::new(Arc::new(state.db.clone()));
+    
+    let model = conversion_service
+        .get_model(&model_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Model not found: {}", model_id)))?;
+    
+    Ok(Json(GetModelResponse {
+        model: ModelInfo {
+            id: model.id,
+            name: model.name,
+            status: format!("{:?}", model.status).to_lowercase(),
+            architecture: serde_json::to_value(&model.architecture).ok(),
+            file_size: model.file_size,
+            created_at: model.created_at.to_rfc3339(),
+        },
+    }))
+}
+
+/// Delete a model
+pub async fn delete_model(
+    State(state): State<SharedState>,
+    axum::extract::Path(model_id): axum::extract::Path<String>,
+) -> ApiResult<Json<DeleteModelResponse>> {
+    use crate::services::ModelConversionService;
+    use std::sync::Arc;
+    
+    let state = state.read().await;
+    let conversion_service = ModelConversionService::new(Arc::new(state.db.clone()));
+    
+    conversion_service.delete_model(&model_id).await?;
+    
+    Ok(Json(DeleteModelResponse {
+        success: true,
+        message: format!("Model {} deleted successfully", model_id),
+    }))
+}
+
+/// Update model strategy (fractal vs ollama)
+pub async fn update_strategy(
+    State(_state): State<SharedState>,
+    Json(request): Json<UpdateStrategyRequest>,
+) -> ApiResult<Json<UpdateStrategyResponse>> {
+    // TODO: Implementar storage de configuración de estrategia
+    // Por ahora, solo validamos y retornamos
+    
+    match request.strategy.as_str() {
+        "fractal" => {
+            if request.model_id.is_none() {
+                return Err(ApiError::ValidationError(
+                    "model_id required for fractal strategy".to_string(),
+                ));
+            }
+        }
+        "ollama" => {}
+        _ => {
+            return Err(ApiError::ValidationError(format!(
+                "Invalid strategy: {}. Must be 'fractal' or 'ollama'",
+                request.strategy
+            )));
+        }
+    }
+    
+    Ok(Json(UpdateStrategyResponse {
+        success: true,
+        current_strategy: request.strategy.clone(),
+        message: format!("Strategy updated to {}", request.strategy),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

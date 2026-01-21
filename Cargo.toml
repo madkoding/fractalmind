@@ -71,6 +71,10 @@ pdf-extract = { version = "0.7", optional = true }
 linfa = { version = "0.7", optional = true }
 linfa-clustering = { version = "0.7", optional = true }
 
+# GGUF model parsing
+byteorder = "1.5"
+memmap2 = "0.9"
+
 [dev-dependencies]
 mockall = "0.13"
 criterion = "0.5"

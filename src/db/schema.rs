@@ -17,6 +17,9 @@ pub async fn initialize_schema(db: &DatabaseConnection) -> Result<()> {
 
     // Definir namespaces y scopes
     define_namespaces(db).await?;
+    
+    // Definir tablas para modelos fractales
+    define_fractal_models_tables(db).await?;
 
     info!("Database schema initialized successfully");
 
@@ -149,6 +152,52 @@ async fn define_namespaces(db: &DatabaseConnection) -> Result<()> {
         .context("Failed to define namespaces")?;
 
     info!("Namespaces and scopes defined");
+    Ok(())
+}
+
+/// Define tablas para modelos fractales
+async fn define_fractal_models_tables(db: &DatabaseConnection) -> Result<()> {
+    let query = r#"
+        DEFINE TABLE fractal_models SCHEMAFULL;
+        DEFINE FIELD name ON TABLE fractal_models TYPE string;
+        DEFINE FIELD architecture ON TABLE fractal_models TYPE object;
+        DEFINE FIELD root_node_id ON TABLE fractal_models TYPE option<string>;
+        DEFINE FIELD status ON TABLE fractal_models TYPE string;
+        DEFINE FIELD file_path ON TABLE fractal_models TYPE string;
+        DEFINE FIELD file_size ON TABLE fractal_models TYPE int;
+        DEFINE FIELD created_at ON TABLE fractal_models TYPE datetime;
+        DEFINE FIELD updated_at ON TABLE fractal_models TYPE datetime;
+        DEFINE FIELD metadata ON TABLE fractal_models TYPE object;
+
+        DEFINE INDEX idx_fractal_models_name ON TABLE fractal_models COLUMNS name;
+        DEFINE INDEX idx_fractal_models_status ON TABLE fractal_models COLUMNS status;
+
+        DEFINE TABLE fractal_model_nodes SCHEMAFULL;
+        DEFINE FIELD model_id ON TABLE fractal_model_nodes TYPE string;
+        DEFINE FIELD embedding ON TABLE fractal_model_nodes TYPE array;
+        DEFINE FIELD layer_info ON TABLE fractal_model_nodes TYPE object;
+        DEFINE FIELD parent_id ON TABLE fractal_model_nodes TYPE option<string>;
+        DEFINE FIELD children_ids ON TABLE fractal_model_nodes TYPE array;
+        DEFINE FIELD level ON TABLE fractal_model_nodes TYPE int;
+
+        DEFINE INDEX idx_fractal_nodes_model ON TABLE fractal_model_nodes COLUMNS model_id;
+        DEFINE INDEX idx_fractal_nodes_level ON TABLE fractal_model_nodes COLUMNS level;
+    "#;
+
+    db.query(query)
+        .await
+        .context("Failed to define fractal models tables")?;
+
+    info!("Fractal models tables defined");
+    Ok(())
+}
+
+/// Inicializa el esquema de modelos fractales
+#[allow(dead_code)]
+pub async fn initialize_fractal_models_schema(db: &DatabaseConnection) -> Result<()> {
+    info!("Initializing fractal models schema...");
+    define_fractal_models_tables(db).await?;
+    info!("Fractal models schema initialized successfully");
     Ok(())
 }
 

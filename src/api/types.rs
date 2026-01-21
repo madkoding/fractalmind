@@ -331,3 +331,73 @@ mod tests {
         assert!(json.contains("database"));
     }
 }
+
+// ============================================================================
+// Model Management Types
+// ============================================================================
+
+/// Response for model upload
+#[derive(Serialize)]
+pub struct UploadModelResponse {
+    pub success: bool,
+    pub model_id: String,
+    pub message: String,
+}
+
+/// Request to convert a model
+#[derive(Deserialize)]
+pub struct ConvertModelRequest {
+    pub model_id: String,
+}
+
+/// Response from model conversion
+#[derive(Serialize)]
+pub struct ConvertModelResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+/// Response listing all models
+#[derive(Serialize)]
+pub struct ListModelsResponse {
+    pub models: Vec<ModelInfo>,
+}
+
+/// Information about a fractal model
+#[derive(Serialize)]
+pub struct ModelInfo {
+    pub id: String,
+    pub name: String,
+    pub status: String,
+    pub architecture: Option<serde_json::Value>,
+    pub file_size: u64,
+    pub created_at: String,
+}
+
+/// Response with single model details
+#[derive(Serialize)]
+pub struct GetModelResponse {
+    pub model: ModelInfo,
+}
+
+/// Response from model deletion
+#[derive(Serialize)]
+pub struct DeleteModelResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+/// Request to update model strategy
+#[derive(Deserialize)]
+pub struct UpdateStrategyRequest {
+    pub strategy: String, // "fractal" or "ollama"
+    pub model_id: Option<String>, // Required if strategy is "fractal"
+}
+
+/// Response from strategy update
+#[derive(Serialize)]
+pub struct UpdateStrategyResponse {
+    pub success: bool,
+    pub current_strategy: String,
+    pub message: String,
+}

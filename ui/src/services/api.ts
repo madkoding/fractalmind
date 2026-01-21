@@ -7,6 +7,14 @@ import type {
   RememberResponse,
   HealthResponse,
   RemPhaseStatus,
+  UploadModelResponse,
+  ConvertModelRequest,
+  ConvertModelResponse,
+  ListModelsResponse,
+  GetModelResponse,
+  DeleteModelResponse,
+  UpdateStrategyRequest,
+  UpdateStrategyResponse,
 } from '@/types';
 
 const DEFAULT_API_URL = import.meta.env.VITE_API_URL || `${location.protocol}//${location.hostname}:3000`;
@@ -153,6 +161,61 @@ class ApiClient {
         }
       }
     }
+  }
+
+  // ============================================================================
+  // Model Management API
+  // ============================================================================
+
+  // Upload GGUF model file
+  async uploadModel(file: File): Promise<UploadModelResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${this.baseUrl}/v1/models/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`API Error: ${response.status} - ${error}`);
+    }
+
+    return response.json();
+  }
+
+  // Convert model to fractal structure
+  async convertModel(request: ConvertModelRequest): Promise<ConvertModelResponse> {
+    return this.request<ConvertModelResponse>('/v1/models/convert', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  // List all models
+  async listModels(): Promise<ListModelsResponse> {
+    return this.request<ListModelsResponse>('/v1/models');
+  }
+
+  // Get model details
+  async getModel(modelId: string): Promise<GetModelResponse> {
+    return this.request<GetModelResponse>(`/v1/models/${modelId}`);
+  }
+
+  // Delete model
+  async deleteModel(modelId: string): Promise<DeleteModelResponse> {
+    return this.request<DeleteModelResponse>(`/v1/models/${modelId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Update model strategy
+  async updateStrategy(request: UpdateStrategyRequest): Promise<UpdateStrategyResponse> {
+    return this.request<UpdateStrategyResponse>('/v1/config/model-strategy', {
+      method: 'PATCH',
+      body: JSON.stringify(request),
+    });
   }
 }
 

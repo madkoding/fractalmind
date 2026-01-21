@@ -41,6 +41,7 @@ pub mod config;
 pub mod ingestion;
 pub mod rem_phase;
 pub mod web_search;
+pub mod model_conversion;
 
 // Re-exports
 pub use config::{RemPhaseConfig, WebSearchConfig};
@@ -56,3 +57,6 @@ pub use ingestion::{
     ChunkingResult, FileType, IngestionConfig, IngestionInput, IngestionResult, IngestionService,
     IngestionServiceBuilder, TextChunk, TextChunker,
 };
+
+// Model conversion re-exports
+pub use model_conversion::ModelConversionService;
