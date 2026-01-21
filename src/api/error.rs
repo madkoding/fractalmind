@@ -87,6 +87,12 @@ impl From<axum::extract::multipart::MultipartError> for ApiError {
     }
 }
 
+impl From<surrealdb::Error> for ApiError {
+    fn from(err: surrealdb::Error) -> Self {
+        ApiError::DatabaseError(err.to_string())
+    }
+}
+
 /// Result type for API handlers
 pub type ApiResult<T> = Result<T, ApiError>;
 

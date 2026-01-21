@@ -429,3 +429,59 @@ pub struct OllamaModelDetails {
 pub struct ListOllamaModelsResponse {
     pub models: Vec<OllamaModelInfo>,
 }
+
+// ============================================================================
+// Chunked Upload Types
+// ============================================================================
+
+/// Request to initialize a chunked upload
+#[derive(Deserialize)]
+pub struct InitUploadRequest {
+    pub filename: String,
+    pub total_size: u64,
+    pub chunk_size: u64,
+}
+
+/// Response from upload initialization
+#[derive(Serialize)]
+pub struct InitUploadResponse {
+    pub upload_id: String,
+    pub chunk_size: u64,
+    pub total_chunks: u64,
+}
+
+/// Response from chunk upload
+#[derive(Serialize)]
+pub struct UploadChunkResponse {
+    pub success: bool,
+    pub chunk_index: u64,
+    pub chunks_received: u64,
+    pub total_chunks: u64,
+}
+
+/// Combined progress response
+#[derive(Serialize)]
+pub struct ProgressResponse {
+    pub upload_progress: f32,      // 0-100
+    pub conversion_progress: f32,  // 0-100
+    pub status: String,            // "uploading", "finalizing", "converting", "ready", "failed"
+    pub upload_speed_mbps: Option<f32>,
+    pub chunks_received: Option<u64>,
+    pub total_chunks: Option<u64>,
+    pub current_phase: Option<String>,  // For conversion: "parsing", "clustering", etc.
+}
+
+/// Response from upload finalization
+#[derive(Serialize)]
+pub struct FinalizeUploadResponse {
+    pub success: bool,
+    pub model_id: String,
+    pub message: String,
+}
+
+/// Response from upload cancellation
+#[derive(Serialize)]
+pub struct CancelUploadResponse {
+    pub success: bool,
+    pub message: String,
+}

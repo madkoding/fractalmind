@@ -222,6 +222,61 @@ class ApiClient {
   async listOllamaModels(): Promise<import('@/types/models').ListOllamaModelsResponse> {
     return this.request<import('@/types/models').ListOllamaModelsResponse>('/v1/models/ollama');
   }
+
+  // ============================================================================
+  // Chunked Upload API
+  // ============================================================================
+
+  // Initialize chunked upload
+  async initUpload(request: import('@/types/models').InitUploadRequest): Promise<import('@/types/models').InitUploadResponse> {
+    return this.request<import('@/types/models').InitUploadResponse>('/v1/models/upload/init', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  // Upload a single chunk
+  async uploadChunk(
+    uploadId: string,
+    chunkIndex: number,
+    totalChunks: number,
+    chunkData: Blob
+  ): Promise<import('@/types/models').UploadChunkResponse> {
+    const response = await fetch(`${this.baseUrl}/v1/models/upload/chunk/${uploadId}`, {
+      method: 'PUT',
+      headers: {
+        'x-chunk-index': String(chunkIndex),
+        'x-total-chunks': String(totalChunks),
+      },
+      body: chunkData,
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to upload chunk ${chunkIndex}: ${error}`);
+    }
+
+    return response.json();
+  }
+
+  // Get upload/conversion progress
+  async getProgress(uploadId: string): Promise<import('@/types/models').ProgressResponse> {
+    return this.request<import('@/types/models').ProgressResponse>(`/v1/models/upload/progress/${uploadId}`);
+  }
+
+  // Finalize upload
+  async finalizeUpload(uploadId: string): Promise<import('@/types/models').FinalizeUploadResponse> {
+    return this.request<import('@/types/models').FinalizeUploadResponse>(`/v1/models/upload/finalize/${uploadId}`, {
+      method: 'POST',
+    });
+  }
+
+  // Cancel upload
+  async cancelUpload(uploadId: string): Promise<import('@/types/models').CancelUploadResponse> {
+    return this.request<import('@/types/models').CancelUploadResponse>(`/v1/models/upload/cancel/${uploadId}`, {
+      method: 'DELETE',
+    });
+  }
 }
 
 // Singleton instance

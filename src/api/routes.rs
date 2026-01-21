@@ -39,9 +39,16 @@ fn api_v1_routes() -> Router<SharedState> {
         .route("/sync_rem", post(handlers::sync_rem))
         // Memory management
         .route("/memory", patch(handlers::memory_update))
-        // Model management
+        // Model management (legacy single upload)
         .route("/models/upload", post(handlers::upload_model))
         .route("/models/convert", post(handlers::convert_model))
+        // Model management (chunked upload)
+        .route("/models/upload/init", post(handlers::init_upload))
+        .route("/models/upload/chunk/:upload_id", axum::routing::put(handlers::upload_chunk))
+        .route("/models/upload/progress/:upload_id", get(handlers::get_progress))
+        .route("/models/upload/finalize/:upload_id", post(handlers::finalize_upload))
+        .route("/models/upload/cancel/:upload_id", delete(handlers::cancel_upload))
+        // Model listing and details
         .route("/models", get(handlers::list_models))
         .route("/models/ollama", get(handlers::list_ollama_models))
         .route("/models/:id", get(handlers::get_model))

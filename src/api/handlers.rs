@@ -1085,6 +1085,301 @@ pub async fn list_ollama_models() -> ApiResult<Json<ListOllamaModelsResponse>> {
     Ok(Json(ListOllamaModelsResponse { models }))
 }
 
+// ============================================================================
+// Chunked Upload Handlers
+// ============================================================================
+
+use std::collections::HashMap;
+use tokio::sync::Mutex;
+
+/// Global in-memory store for upload sessions.
+/// In production, this should be in SurrealDB.
+lazy_static::lazy_static! {
+    static ref UPLOAD_SESSIONS: Arc<Mutex<HashMap<String, crate::models::UploadSession>>> = 
+        Arc::new(Mutex::new(HashMap::new()));
+}
+
+/// Initialize a chunked upload session
+pub async fn init_upload(
+    Json(request): Json<InitUploadRequest>,
+) -> ApiResult<Json<InitUploadResponse>> {
+    use tokio::fs;
+    use crate::models::UploadSession;
+
+    // Validate request
+    if request.filename.is_empty() {
+        return Err(ApiError::ValidationError("Filename cannot be empty".to_string()));
+    }
+
+    if !request.filename.to_lowercase().ends_with(".gguf") {
+        return Err(ApiError::ValidationError("Only .gguf files are supported".to_string()));
+    }
+
+    const MAX_MODEL_SIZE: u64 = 500 * 1024 * 1024 * 1024; // 500GB
+    if request.total_size > MAX_MODEL_SIZE {
+        return Err(ApiError::ValidationError(
+            format!("File too large: {} bytes (max: {} GB)", request.total_size, MAX_MODEL_SIZE / (1024 * 1024 * 1024))
+        ));
+    }
+
+    // Create upload directory
+    fs::create_dir_all("/var/tmp/fractalmind_uploads").await?;
+
+    // Create upload session
+    let session = UploadSession::new(request.filename, request.total_size, request.chunk_size);
+    let upload_id = session.upload_id.clone();
+    let total_chunks = session.total_chunks;
+
+    // Store session
+    let mut sessions = UPLOAD_SESSIONS.lock().await;
+    sessions.insert(upload_id.clone(), session);
+
+    info!("Initialized upload session: {} ({} chunks)", upload_id, total_chunks);
+
+    Ok(Json(InitUploadResponse {
+        upload_id,
+        chunk_size: request.chunk_size,
+        total_chunks,
+    }))
+}
+
+/// Upload a single chunk
+pub async fn upload_chunk(
+    axum::extract::Path(upload_id): axum::extract::Path<String>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> ApiResult<Json<UploadChunkResponse>> {
+    use tokio::fs::OpenOptions;
+    use tokio::io::{AsyncWriteExt, AsyncSeekExt};
+    use std::io::SeekFrom;
+
+    // Extract headers
+    let chunk_index: u64 = headers
+        .get("x-chunk-index")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok())
+        .ok_or_else(|| ApiError::ValidationError("Missing or invalid x-chunk-index header".to_string()))?;
+
+    let total_chunks: u64 = headers
+        .get("x-total-chunks")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok())
+        .ok_or_else(|| ApiError::ValidationError("Missing or invalid x-total-chunks header".to_string()))?;
+
+    // Get session
+    let mut sessions = UPLOAD_SESSIONS.lock().await;
+    let session = sessions.get_mut(&upload_id)
+        .ok_or_else(|| ApiError::NotFound(format!("Upload session not found: {}", upload_id)))?;
+
+    // Validate chunk index
+    if chunk_index >= total_chunks {
+        return Err(ApiError::ValidationError(
+            format!("Invalid chunk index: {} (total: {})", chunk_index, total_chunks)
+        ));
+    }
+
+    // Check if chunk already received
+    if session.chunks_received.contains(&chunk_index) {
+        debug!("Chunk {} already received for {}, skipping", chunk_index, upload_id);
+        return Ok(Json(UploadChunkResponse {
+            success: true,
+            chunk_index,
+            chunks_received: session.chunks_received.len() as u64,
+            total_chunks: session.total_chunks,
+        }));
+    }
+
+    // Calculate timing for speed
+    let start = Instant::now();
+
+    // Write chunk to file
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(&session.temp_path)
+        .await?;
+
+    // Seek to chunk position
+    let offset = chunk_index * session.chunk_size;
+    file.seek(SeekFrom::Start(offset)).await?;
+
+    // Write chunk data
+    file.write_all(&body).await?;
+    file.sync_all().await?;
+
+    // Update session
+    let elapsed = start.elapsed().as_secs_f32();
+    session.calculate_speed(body.len() as u64, elapsed);
+    session.add_chunk(chunk_index);
+
+    let chunks_received = session.chunks_received.len() as u64;
+    let total_chunks = session.total_chunks;
+
+    debug!(
+        "Received chunk {}/{} for {} ({}%)",
+        chunk_index + 1,
+        total_chunks,
+        upload_id,
+        session.upload_progress
+    );
+
+    Ok(Json(UploadChunkResponse {
+        success: true,
+        chunk_index,
+        chunks_received,
+        total_chunks,
+    }))
+}
+
+/// Get upload and conversion progress
+pub async fn get_progress(
+    axum::extract::Path(upload_id): axum::extract::Path<String>,
+    State(state): State<SharedState>,
+) -> ApiResult<Json<ProgressResponse>> {
+    let sessions = UPLOAD_SESSIONS.lock().await;
+    
+    if let Some(session) = sessions.get(&upload_id) {
+        return Ok(Json(ProgressResponse {
+            upload_progress: session.upload_progress,
+            conversion_progress: session.conversion_progress,
+            status: session.status.as_str().to_string(),
+            upload_speed_mbps: session.upload_speed_mbps,
+            chunks_received: Some(session.chunks_received.len() as u64),
+            total_chunks: Some(session.total_chunks),
+            current_phase: session.current_phase.clone(),
+        }));
+    }
+
+    // If not in upload sessions, check if it's a model_id
+    drop(sessions);
+    
+    let state_guard = state.read().await;
+    use crate::services::ModelConversionService;
+    let service = ModelConversionService::new(Arc::new(state_guard.db.clone()));
+    
+    if let Ok(Some(model)) = service.get_model(&upload_id).await {
+        return Ok(Json(ProgressResponse {
+            upload_progress: 100.0,
+            conversion_progress: model.conversion_progress.unwrap_or(0.0),
+            status: format!("{:?}", model.status).to_lowercase(),
+            upload_speed_mbps: None,
+            chunks_received: None,
+            total_chunks: None,
+            current_phase: model.conversion_phase.clone(),
+        }));
+    }
+
+    Err(ApiError::NotFound(format!("Upload or model not found: {}", upload_id)))
+}
+
+/// Finalize upload and trigger conversion
+pub async fn finalize_upload(
+    axum::extract::Path(upload_id): axum::extract::Path<String>,
+    State(state): State<SharedState>,
+) -> ApiResult<Json<FinalizeUploadResponse>> {
+    use tokio::fs;
+    use crate::models::llm::FractalModel;
+    use crate::services::ModelConversionService;
+
+    const GGUF_MAGIC: u32 = 0x46554747;
+
+    // Get and remove session from active uploads
+    let mut sessions = UPLOAD_SESSIONS.lock().await;
+    let mut session = sessions.remove(&upload_id)
+        .ok_or_else(|| ApiError::NotFound(format!("Upload session not found: {}", upload_id)))?;
+
+    // Verify all chunks received
+    if !session.is_complete() {
+        let missing = session.missing_chunks();
+        sessions.insert(upload_id.clone(), session); // Put it back
+        return Err(ApiError::ValidationError(
+            format!("Upload incomplete. Missing chunks: {:?}", &missing[..missing.len().min(10)])
+        ));
+    }
+
+    session.status = crate::models::UploadStatus::Finalizing;
+    drop(sessions);
+
+    info!("Finalizing upload: {}", upload_id);
+
+    // Validate GGUF magic number
+    let mut file = fs::File::open(&session.temp_path).await?;
+    let mut magic_bytes = [0u8; 4];
+    use tokio::io::AsyncReadExt;
+    file.read_exact(&mut magic_bytes).await?;
+    let magic = u32::from_le_bytes(magic_bytes);
+
+    if magic != GGUF_MAGIC {
+        fs::remove_file(&session.temp_path).await?;
+        return Err(ApiError::ValidationError(
+            format!("Invalid GGUF file: magic number mismatch (expected 0x{:08x}, got 0x{:08x})", GGUF_MAGIC, magic)
+        ));
+    }
+
+    // Move to final location
+    let models_dir = "/var/tmp/fractalmind_models";
+    fs::create_dir_all(models_dir).await?;
+    let final_path = format!("{}/{}", models_dir, session.filename);
+    fs::rename(&session.temp_path, &final_path).await?;
+
+    info!("Moved uploaded file to: {}", final_path);
+
+    // Create model in DB
+    let state_guard = state.read().await;
+    let model = FractalModel::new(session.filename.clone(), final_path, session.total_size);
+    let model_id = model.id.clone();
+
+    let conversion_service = ModelConversionService::new(Arc::new(state_guard.db.clone()));
+    conversion_service.create_model(&model).await?;
+
+    // Start automatic conversion in background
+    let db = Arc::new(state_guard.db.clone());
+    let model_id_clone = model_id.clone();
+    
+    tokio::spawn(async move {
+        let service = ModelConversionService::new(db);
+        if let Ok(Some(mut model)) = service.get_model(&model_id_clone).await {
+            info!("Starting automatic conversion for model: {}", model_id_clone);
+            if let Err(e) = service.convert_model(&mut model).await {
+                error!("Failed to convert model {}: {}", model_id_clone, e);
+            }
+        }
+    });
+
+    Ok(Json(FinalizeUploadResponse {
+        success: true,
+        model_id,
+        message: format!("Upload finalized. Model conversion started."),
+    }))
+}
+
+/// Cancel an upload
+pub async fn cancel_upload(
+    axum::extract::Path(upload_id): axum::extract::Path<String>,
+) -> ApiResult<Json<CancelUploadResponse>> {
+    use tokio::fs;
+
+    let mut sessions = UPLOAD_SESSIONS.lock().await;
+    
+    if let Some(mut session) = sessions.remove(&upload_id) {
+        session.mark_cancelled();
+        
+        // Remove temporary file
+        if let Err(e) = fs::remove_file(&session.temp_path).await {
+            warn!("Failed to remove temp file {}: {}", session.temp_path, e);
+        }
+
+        info!("Cancelled upload: {}", upload_id);
+
+        Ok(Json(CancelUploadResponse {
+            success: true,
+            message: format!("Upload {} cancelled", upload_id),
+        }))
+    } else {
+        Err(ApiError::NotFound(format!("Upload session not found: {}", upload_id)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

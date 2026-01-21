@@ -7,6 +7,9 @@ export interface FractalModel {
   architecture?: ModelArchitecture;
   file_size: number;
   created_at: string;
+  upload_progress?: number;
+  conversion_progress?: number;
+  current_phase?: string;
 }
 
 export interface ModelArchitecture {
@@ -80,4 +83,45 @@ export interface OllamaModel {
 
 export interface ListOllamaModelsResponse {
   models: OllamaModel[];
+}
+
+// Chunked Upload Types
+export interface InitUploadRequest {
+  filename: string;
+  total_size: number;
+  chunk_size: number;
+}
+
+export interface InitUploadResponse {
+  upload_id: string;
+  chunk_size: number;
+  total_chunks: number;
+}
+
+export interface UploadChunkResponse {
+  success: boolean;
+  chunk_index: number;
+  chunks_received: number;
+  total_chunks: number;
+}
+
+export interface ProgressResponse {
+  upload_progress: number;
+  conversion_progress: number;
+  status: string;
+  upload_speed_mbps?: number;
+  chunks_received?: number;
+  total_chunks?: number;
+  current_phase?: string;
+}
+
+export interface FinalizeUploadResponse {
+  success: boolean;
+  model_id: string;
+  message: string;
+}
+
+export interface CancelUploadResponse {
+  success: boolean;
+  message: string;
 }

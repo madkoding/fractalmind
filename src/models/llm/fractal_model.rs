@@ -52,6 +52,10 @@ pub struct FractalModel {
     pub file_path: String,
     /// Tamaño del archivo en bytes
     pub file_size: u64,
+    /// Progreso de conversión (0-100)
+    pub conversion_progress: Option<f32>,
+    /// Fase actual de conversión
+    pub conversion_phase: Option<String>,
     /// Fecha de creación
     pub created_at: DateTime<Utc>,
     /// Fecha de última actualización
@@ -79,6 +83,8 @@ impl FractalModel {
             status: FractalModelStatus::Uploading,
             file_path,
             file_size,
+            conversion_progress: Some(0.0),
+            conversion_phase: None,
             created_at: now,
             updated_at: now,
             metadata: serde_json::json!({}),
@@ -88,6 +94,13 @@ impl FractalModel {
     /// Actualiza el estado del modelo
     pub fn update_status(&mut self, status: FractalModelStatus) {
         self.status = status;
+        self.updated_at = Utc::now();
+    }
+
+    /// Actualiza el progreso de conversión
+    pub fn update_conversion_progress(&mut self, progress: f32, phase: Option<String>) {
+        self.conversion_progress = Some(progress.clamp(0.0, 100.0));
+        self.conversion_phase = phase;
         self.updated_at = Utc::now();
     }
 
