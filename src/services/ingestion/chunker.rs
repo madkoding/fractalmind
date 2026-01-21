@@ -147,11 +147,27 @@ impl TextChunker {
         let mut start = 0;
 
         while start < text.len() {
+            // Ensure start is at a valid UTF-8 boundary
+            start = self.find_char_boundary(text, start);
+            
+            if start >= text.len() {
+                break;
+            }
+
             // Calculate end position
             let end = (start + self.chunk_size).min(text.len());
 
             // Try to find a good break point (sentence or word boundary)
             let actual_end = self.find_break_point(text, start, end);
+
+            // Ensure actual_end is at a valid UTF-8 boundary
+            let actual_end = self.find_char_boundary(text, actual_end);
+
+            // Safety check: ensure we have a valid range
+            if actual_end <= start {
+                start = self.find_next_char_boundary(text, start + 1);
+                continue;
+            }
 
             // Extract chunk
             let chunk_text = &text[start..actual_end];
@@ -173,6 +189,8 @@ impl TextChunker {
             }
 
             start = actual_end.saturating_sub(self.chunk_overlap);
+            // Ensure start is at a valid UTF-8 boundary after overlap adjustment
+            start = self.find_char_boundary(text, start);
 
             // Ensure we make progress
             if start >= actual_end {
@@ -420,6 +438,20 @@ impl TextChunker {
         
         0
     }
+
+    /// Finds the nearest valid UTF-8 character boundary at or after the given position.
+    fn find_next_char_boundary(&self, text: &str, pos: usize) -> usize {
+        let pos = pos.min(text.len());
+        
+        // Walk forward to find a valid UTF-8 boundary
+        for i in pos..=text.len() {
+            if text.is_char_boundary(i) {
+                return i;
+            }
+        }
+        
+        text.len()
+    }
 }
 
 #[cfg(test)]
@@ -555,5 +587,37 @@ mod tests {
         let result = chunker.chunk(&text);
 
         assert!(result.avg_chunk_size <= 550); // chunk_size + some buffer
+    }
+
+    #[test]
+    fn test_chunk_utf8_multibyte_characters() {
+        // Test with Spanish text containing multi-byte UTF-8 characters
+        let chunker = TextChunker::new(50, 10, 20);
+        let text = "Bienvenido á la programación. Más información aquí. Años de experiencia. Niño pequeño.";
+        let result = chunker.chunk(text);
+
+        // Should not panic and produce valid chunks
+        assert!(result.count() >= 1);
+        for chunk in &result.chunks {
+            // Each chunk should be valid UTF-8 (implicit by being a String)
+            assert!(!chunk.content.is_empty() || chunk.is_last());
+        }
+    }
+
+    #[test]
+    fn test_chunk_utf8_mixed_content() {
+        // Test with mixed content: ASCII, Spanish, Japanese, emojis
+        let chunker = TextChunker::new(100, 20, 30);
+        let text = "Hello world. Más información aquí. 日本語テスト。絵文字も含む 🎉🚀💻. Back to English.";
+        let result = chunker.chunk(text);
+
+        // Should not panic
+        assert!(result.count() >= 1);
+        
+        // Verify we can iterate and access content without panics
+        for chunk in &result.chunks {
+            let _ = chunk.content.len();
+            let _ = chunk.content.chars().count();
+        }
     }
 }
