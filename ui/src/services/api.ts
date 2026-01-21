@@ -9,7 +9,7 @@ import type {
   RemPhaseStatus,
 } from '@/types';
 
-const DEFAULT_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const DEFAULT_API_URL = import.meta.env.VITE_API_URL || `${location.protocol}//${location.hostname}:3000`;
 
 class ApiClient {
   private baseUrl: string;

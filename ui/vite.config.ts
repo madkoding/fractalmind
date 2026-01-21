@@ -12,9 +12,11 @@ export default defineConfig({
   },
   // Tauri expects a fixed port
   server: {
+    host: true,
     port: 5173,
     strictPort: true,
-    allowedHosts: ['tachikoma']
+    allowedHosts: ['tachikoma', 'localhost', '127.0.0.1'],
+    cors: true
   },
   // Tauri production build configuration
   build: {
