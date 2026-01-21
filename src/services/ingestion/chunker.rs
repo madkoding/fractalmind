@@ -250,8 +250,8 @@ impl TextChunker {
             }
         }
 
-        // Fallback: use target end
-        target_end
+        // Fallback: use target end (ensure UTF-8 boundary)
+        self.find_char_boundary(text, target_end)
     }
 
     /// Chunks text by sentences first, then combines into appropriately sized chunks.
