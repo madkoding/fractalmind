@@ -4,13 +4,19 @@
 
 use axum::{
     routing::{delete, get, patch, post},
-    Router,
+    Extension, Router,
 };
 
 use super::handlers::{self, SharedState};
 
 /// Creates the API router with all routes configured
 pub fn create_router(state: SharedState) -> Router {
+    // Extract progress tracker for the Extension layer
+    let progress_tracker = {
+        let state_read = state.blocking_read();
+        state_read.progress_tracker.clone()
+    };
+    
     Router::new()
         // Health check
         .route("/health", get(handlers::health_check))
@@ -18,6 +24,8 @@ pub fn create_router(state: SharedState) -> Router {
         .nest("/v1", api_v1_routes())
         // Stats
         .route("/stats", get(handlers::stats))
+        // Add progress tracker as extension for SSE route
+        .layer(Extension(progress_tracker))
         // State
         .with_state(state)
 }
@@ -29,6 +37,8 @@ fn api_v1_routes() -> Router<SharedState> {
         .route("/ingest", post(handlers::ingest))
         // Knowledge ingestion (file upload - multipart)
         .route("/ingest/file", post(handlers::ingest_file))
+        // Progress tracking for ingestion (SSE)
+        .route("/ingest/progress/:session_id", get(super::progress::progress_stream))
         // Episodic memory
         .route("/remember", post(handlers::remember))
         // Knowledge query

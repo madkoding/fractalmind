@@ -61,6 +61,17 @@ pub struct IngestResponse {
     pub message: String,
 }
 
+/// Response from file ingest operation with progress tracking
+#[derive(Serialize)]
+pub struct IngestFileResponse {
+    pub success: bool,
+    pub session_id: String,
+    pub node_id: Option<String>,
+    pub embedding_dimension: Option<usize>,
+    pub latency_ms: u64,
+    pub message: String,
+}
+
 // ============================================================================
 // Remember API (Episodic Memory)
 // ============================================================================

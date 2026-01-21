@@ -9,7 +9,9 @@ description = "Fractal-Mind: Sistema de IA con memoria evolutiva y aprendizaje a
 # Async Runtime
 tokio = { version = "1.40", features = ["full"] }
 tokio-util = "0.7"
+tokio-stream = "0.1"
 async-trait = "0.1"
+async-stream = "0.3"
 
 # Web Framework
 axum = { version = "0.7", features = ["macros", "multipart"] }

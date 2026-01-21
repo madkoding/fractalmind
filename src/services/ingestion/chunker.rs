@@ -209,6 +209,10 @@ impl TextChunker {
         let search_start = target_end.saturating_sub(100);
         let search_end = (target_end + 50).min(text.len());
 
+        // Ensure we slice at valid UTF-8 boundaries
+        let search_start = self.find_char_boundary(text, search_start);
+        let search_end = self.find_char_boundary(text, search_end);
+
         let search_text = &text[search_start..search_end];
 
         // Priority 1: Find sentence boundary (. ! ? followed by space or newline)
@@ -401,6 +405,20 @@ impl TextChunker {
         }
 
         false
+    }
+
+    /// Finds the nearest valid UTF-8 character boundary at or before the given position.
+    fn find_char_boundary(&self, text: &str, pos: usize) -> usize {
+        let pos = pos.min(text.len());
+        
+        // Walk backwards to find a valid UTF-8 boundary
+        for i in (0..=pos).rev() {
+            if text.is_char_boundary(i) {
+                return i;
+            }
+        }
+        
+        0
     }
 }
 

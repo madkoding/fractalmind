@@ -25,6 +25,7 @@ use crate::db::connection::DatabaseConnection;
 use crate::models::llm::{ModelBrain, BrainConfig};
 use crate::cache::{NodeCache, EmbeddingCache, CacheConfig};
 use crate::api::handlers::{AppState, SharedState};
+use crate::api::progress::create_progress_tracker;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -93,6 +94,9 @@ async fn main() -> Result<()> {
     let cache_config = CacheConfig::from_env();
     let node_cache = NodeCache::new(cache_config.clone());
     let embedding_cache = EmbeddingCache::new(cache_config);
+    
+    // Crear progress tracker para ingestion
+    let progress_tracker = create_progress_tracker();
 
     // Crear estado compartido
     let state = Arc::new(RwLock::new(AppState {
@@ -100,6 +104,7 @@ async fn main() -> Result<()> {
         brain,
         node_cache,
         embedding_cache,
+        progress_tracker,
     }));
 
     // Configurar CORS (permisivo para desarrollo)

@@ -22,6 +22,7 @@ use crate::models::llm::ModelBrain;
 use crate::models::{EmbeddingVector, FractalNode, NodeMetadata};
 
 use super::error::{ApiError, ApiResult};
+use super::progress::{ProgressTracker, register_session, update_progress, cleanup_session};
 use super::types::*;
 
 /// Application state shared across handlers
@@ -37,6 +38,9 @@ pub struct AppState {
 
     /// Embedding cache
     pub embedding_cache: EmbeddingCache,
+
+    /// Progress tracker for ingestion operations
+    pub progress_tracker: ProgressTracker,
 }
 
 /// Thread-safe shared state
@@ -198,8 +202,14 @@ pub async fn ingest(
 pub async fn ingest_file(
     State(state): State<SharedState>,
     mut multipart: Multipart,
-) -> ApiResult<Json<IngestResponse>> {
+) -> ApiResult<Json<IngestFileResponse>> {
     let start = Instant::now();
+
+    // Register progress session BEFORE acquiring lock
+    let session_id = {
+        let state_read = state.read().await;
+        register_session(&state_read.progress_tracker).await
+    };
 
     // Read config for ingestion limits and features
     let config = IngestionConfig::from_env();
@@ -293,6 +303,15 @@ pub async fn ingest_file(
         return Err(ApiError::ValidationError("Unsupported or unknown file type".to_string()));
     }
 
+    // Update progress: extracting
+    {
+        let state_read = state.read().await;
+        update_progress(&state_read.progress_tracker, &session_id, |p| {
+            p.stage = "extracting".to_string();
+            p.message = Some(format!("Extracting text from {:?} file", file_type));
+        }).await;
+    }
+
     // Choose extractor
     let extractor: Box<dyn ContentExtractor> = match file_type {
         FileType::Text => ExtractorFactory::text(),
@@ -332,6 +351,15 @@ pub async fn ingest_file(
         return Err(ApiError::ValidationError("Could not extract text from file".to_string()));
     }
 
+    // Update progress: chunking
+    {
+        let state_read = state.read().await;
+        update_progress(&state_read.progress_tracker, &session_id, |p| {
+            p.stage = "chunking".to_string();
+            p.message = Some(format!("Splitting text ({} chars)", extraction.text.len()));
+        }).await;
+    }
+
     // Use provided namespace or default
     let namespace = namespace.unwrap_or_else(|| "global_knowledge".to_string());
 
@@ -347,6 +375,17 @@ pub async fn ingest_file(
     // Store chunk metadata before iterating
     let was_split = chunking_result.was_split();
     let chunks = chunking_result.chunks;
+    let total_chunks = chunks.len();
+
+    // Update progress: embedding phase
+    {
+        let state_read = state.read().await;
+        update_progress(&state_read.progress_tracker, &session_id, |p| {
+            p.stage = "embedding".to_string();
+            p.total_chunks = total_chunks;
+            p.message = Some(format!("Generating embeddings for {} chunks", total_chunks));
+        }).await;
+    }
 
     // Generate embedding (allow tests to disable real model calls)
     let state = state.read().await;
@@ -360,6 +399,12 @@ pub async fn ingest_file(
     let mut embedding_dimension = None;
 
     for chunk in &chunks {
+        // Update progress: current chunk
+        update_progress(&state.progress_tracker, &session_id, |p| {
+            p.current_chunk = chunk.index + 1;
+            p.message = Some(format!("Embedding chunk {}/{}", chunk.index + 1, total_chunks));
+        }).await;
+
         let embedding_response = if disable_embedding {
             // Build a fake embedding response using EMBEDDING_DIMENSION env var
             let dim = std::env::var("EMBEDDING_DIMENSION")
@@ -404,6 +449,17 @@ pub async fn ingest_file(
         if !disable_embedding {
             state.embedding_cache.put(&chunk.content, embedding_vector.clone());
         }
+
+        // Update embeddings completed
+        update_progress(&state.progress_tracker, &session_id, |p| {
+            p.embeddings_completed = chunk.index + 1;
+        }).await;
+
+        // Update progress: persisting
+        update_progress(&state.progress_tracker, &session_id, |p| {
+            p.stage = "persisting".to_string();
+            p.message = Some(format!("Saving chunk {}/{} to database", chunk.index + 1, total_chunks));
+        }).await;
 
         // Prepare metadata with chunk information
         let mut metadata = NodeMetadata::default();
@@ -453,7 +509,26 @@ pub async fn ingest_file(
         };
 
         node_ids.push(node_id);
+
+        // Update nodes persisted
+        update_progress(&state.progress_tracker, &session_id, |p| {
+            p.nodes_persisted = chunk.index + 1;
+        }).await;
     }
+
+    // Mark as complete
+    update_progress(&state.progress_tracker, &session_id, |p| {
+        p.stage = "complete".to_string();
+        p.success = true;
+        p.message = Some(format!("Successfully processed {} chunks", total_chunks));
+    }).await;
+
+    // Schedule cleanup after 30 seconds
+    let tracker_clone = state.progress_tracker.clone();
+    let session_id_clone = session_id.clone();
+    tokio::spawn(async move {
+        cleanup_session(&tracker_clone, session_id_clone, 30).await;
+    });
 
     let message = if node_ids.len() > 1 {
         format!("File ingested successfully ({} chunks created)", node_ids.len())
@@ -461,8 +536,9 @@ pub async fn ingest_file(
         "File ingested successfully".to_string()
     };
 
-    Ok(Json(IngestResponse {
+    Ok(Json(IngestFileResponse {
         success: true,
+        session_id,
         node_id: node_ids.first().cloned(),
         embedding_dimension,
         latency_ms: start.elapsed().as_millis() as u64,

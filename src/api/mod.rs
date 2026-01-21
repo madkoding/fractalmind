@@ -12,6 +12,7 @@
 
 pub mod error;
 pub mod handlers;
+pub mod progress;
 pub mod routes;
 pub mod types;
 
