@@ -98,22 +98,12 @@ async fn define_edges_table(db: &DatabaseConnection) -> Result<()> {
 /// Define índices HNSW para búsqueda vectorial eficiente
 async fn define_vector_indexes(db: &DatabaseConnection) -> Result<()> {
     // SurrealDB 1.5+ soporta índices vectoriales MTREE
+    // Usar solo el índice principal para Nomic (768 dims) por ahora
+    // Los demás modelos pueden agregarse cuando se usen
     let query = r#"
-        DEFINE INDEX idx_embedding_nomic ON TABLE nodes
+        DEFINE INDEX idx_embedding_vector ON TABLE nodes
             FIELDS embedding.vector
             MTREE DIMENSION 768
-            DIST COSINE
-            TYPE F32;
-
-        DEFINE INDEX idx_embedding_small ON TABLE nodes
-            FIELDS embedding.vector
-            MTREE DIMENSION 384
-            DIST COSINE
-            TYPE F32;
-
-        DEFINE INDEX idx_embedding_clip ON TABLE nodes
-            FIELDS embedding.vector
-            MTREE DIMENSION 512
             DIST COSINE
             TYPE F32;
     "#;
