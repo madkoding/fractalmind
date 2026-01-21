@@ -121,7 +121,7 @@ impl ModelConfig {
             model_type: ModelType::Embedding,
             provider: ModelProvider::Ollama {
                 base_url: "http://localhost:11434".to_string(),
-                model_name: "nomic-embed-text".to_string(),
+                model_name: "nomic-embed-text:latest".to_string(),
             },
             temperature: 0.0, // Embeddings no usan temperatura
             top_p: 1.0,
@@ -270,7 +270,7 @@ impl BrainConfig {
         let embedding_provider = std::env::var("EMBEDDING_PROVIDER")
             .unwrap_or_else(|_| "ollama".to_string());
         let embedding_model_name = std::env::var("EMBEDDING_MODEL")
-            .unwrap_or_else(|_| "nomic-embed-text".to_string());
+            .unwrap_or_else(|_| "nomic-embed-text:latest".to_string());
         let embedding_model = match embedding_provider.as_str() {
             "ollama" => ModelConfig {
                 model_type: ModelType::Embedding,
