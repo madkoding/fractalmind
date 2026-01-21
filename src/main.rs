@@ -125,7 +125,7 @@ async fn main() -> Result<()> {
     // Crear router usando el módulo api::routes
     // IMPORTANTE: El orden de los layers es de abajo hacia arriba
     // CORS debe procesarse primero (último en la cadena de .layer())
-    let app = api::routes::create_router(state)
+    let app = api::routes::create_router(state).await
         // Middleware (orden inverso: cors se aplica primero a las requests)
         .layer(cors)
         .layer(TraceLayer::new_for_http());

@@ -10,10 +10,10 @@ use axum::{
 use super::handlers::{self, SharedState};
 
 /// Creates the API router with all routes configured
-pub fn create_router(state: SharedState) -> Router {
+pub async fn create_router(state: SharedState) -> Router {
     // Extract progress tracker for the Extension layer
     let progress_tracker = {
-        let state_read = state.blocking_read();
+        let state_read = state.read().await;
         state_read.progress_tracker.clone()
     };
     

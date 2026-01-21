@@ -45,7 +45,7 @@ async fn test_ingest_file_handler_multipart() {
     };
 
     let shared = Arc::new(RwLock::new(state));
-    let app = create_router(shared.clone());
+    let app = create_router(shared.clone()).await;
 
     // Build multipart body with a small text file
     let boundary = "TEST_BOUNDARY";
