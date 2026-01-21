@@ -904,6 +904,85 @@ pub async fn update_strategy(
     }))
 }
 
+/// List available Ollama models
+pub async fn list_ollama_models() -> ApiResult<Json<ListOllamaModelsResponse>> {
+    use reqwest::Client;
+    use serde::Deserialize;
+    
+    #[derive(Deserialize)]
+    struct OllamaApiModel {
+        name: String,
+        model: String,
+        modified_at: String,
+        size: u64,
+        digest: String,
+        details: Option<OllamaApiDetails>,
+    }
+    
+    #[derive(Deserialize)]
+    struct OllamaApiDetails {
+        parent_model: Option<String>,
+        format: Option<String>,
+        family: Option<String>,
+        families: Option<Vec<String>>,
+        parameter_size: Option<String>,
+        quantization_level: Option<String>,
+    }
+    
+    #[derive(Deserialize)]
+    struct OllamaTagsResponse {
+        models: Vec<OllamaApiModel>,
+    }
+    
+    let ollama_url = std::env::var("OLLAMA_URL")
+        .unwrap_or_else(|_| "http://localhost:11434".to_string());
+    
+    let client = Client::new();
+    let url = format!("{}/api/tags", ollama_url);
+    
+    debug!("Fetching Ollama models from: {}", url);
+    
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to connect to Ollama: {}", e)))?;
+    
+    if !response.status().is_success() {
+        return Err(ApiError::InternalError(format!(
+            "Ollama API returned status: {}",
+            response.status()
+        )));
+    }
+    
+    let ollama_response: OllamaTagsResponse = response
+        .json()
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to parse Ollama response: {}", e)))?;
+    
+    let models = ollama_response
+        .models
+        .into_iter()
+        .map(|m| OllamaModelInfo {
+            name: m.name,
+            model: m.model,
+            modified_at: m.modified_at,
+            size: m.size,
+            digest: m.digest,
+            details: m.details.map(|d| OllamaModelDetails {
+                parent_model: d.parent_model,
+                format: d.format,
+                family: d.family,
+                families: d.families,
+                parameter_size: d.parameter_size,
+                quantization_level: d.quantization_level,
+            }),
+        })
+        .collect();
+    
+    Ok(Json(ListOllamaModelsResponse { models }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

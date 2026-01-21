@@ -10,10 +10,11 @@ import {
   Zap
 } from 'lucide-react';
 import { api } from '@/services';
-import type { FractalModel, ModelStrategy } from '@/types';
+import type { FractalModel, ModelStrategy, OllamaModel } from '@/types';
 
 export const ModelManager = () => {
   const [models, setModels] = useState<FractalModel[]>([]);
+  const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,23 +22,29 @@ export const ModelManager = () => {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
 
-  // Load models on mount
+  // Load models on mount and when strategy changes
   useEffect(() => {
     loadModels();
-  }, []);
+  }, [strategy]);
 
   const loadModels = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await api.listModels();
-      setModels(response.models);
+      
+      if (strategy === 'ollama') {
+        const response = await api.listOllamaModels();
+        setOllamaModels(response.models);
+      } else {
+        const response = await api.listModels();
+        setModels(response.models);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load models');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [strategy]);
 
   const handleFileUpload = async (file: File) => {
     if (!file.name.endsWith('.gguf')) {
@@ -266,7 +273,11 @@ export const ModelManager = () => {
       {/* Models List */}
       <div className="flex-1 overflow-auto p-6 pt-0">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold">Models ({models.length})</h2>
+          <h2 className="text-xl font-semibold">
+            {strategy === 'ollama' 
+              ? `Ollama Models (${ollamaModels.length})` 
+              : `Fractal Models (${models.length})`}
+          </h2>
           <button
             onClick={loadModels}
             disabled={loading}
@@ -276,98 +287,161 @@ export const ModelManager = () => {
           </button>
         </div>
 
-        {loading && models.length === 0 ? (
+        {loading && (strategy === 'ollama' ? ollamaModels.length === 0 : models.length === 0) ? (
           <div className="text-center py-12 text-gray-500">
             <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin" />
             Loading models...
           </div>
-        ) : models.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            No models uploaded yet. Upload a GGUF model to get started.
-          </div>
-        ) : (
-          <div className="grid gap-4">
-            {models.map(model => (
-              <div
-                key={model.id}
-                className={`bg-gray-800 rounded-lg p-4 border ${
-                  selectedModel === model.id
-                    ? 'border-purple-500'
-                    : 'border-gray-700 hover:border-gray-600'
-                } transition-colors cursor-pointer`}
-                onClick={() => setSelectedModel(model.id)}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      {getStatusIcon(model.status)}
-                      <h3 className="font-semibold text-lg">{model.name}</h3>
-                      <span
-                        className={`px-2 py-1 rounded text-xs border ${getStatusColor(
-                          model.status
-                        )}`}
-                      >
-                        {model.status}
-                      </span>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4 text-sm text-gray-400">
-                      <div>
-                        <span className="font-medium">Size:</span> {formatFileSize(model.file_size)}
-                      </div>
-                      <div>
-                        <span className="font-medium">Created:</span>{' '}
-                        {new Date(model.created_at).toLocaleDateString()}
+        ) : strategy === 'ollama' ? (
+          // Ollama Models List
+          ollamaModels.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              No Ollama models found. Make sure Ollama is running with models installed.
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {ollamaModels.map(model => (
+                <div
+                  key={model.digest}
+                  className={`bg-gray-800 rounded-lg p-4 border ${
+                    selectedModel === model.name
+                      ? 'border-blue-500'
+                      : 'border-gray-700 hover:border-gray-600'
+                  } transition-colors cursor-pointer`}
+                  onClick={() => setSelectedModel(model.name)}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <CheckCircle className="w-5 h-5 text-green-500" />
+                        <h3 className="font-semibold text-lg">{model.name}</h3>
                       </div>
                       
-                      {model.architecture && (
-                        <>
-                          <div>
-                            <span className="font-medium">Type:</span> {model.architecture.model_type}
-                          </div>
-                          <div>
-                            <span className="font-medium">Layers:</span> {model.architecture.n_layers}
-                          </div>
-                          <div>
-                            <span className="font-medium">Embedding:</span> {model.architecture.embedding_dim}D
-                          </div>
-                          <div>
-                            <span className="font-medium">Vocab:</span>{' '}
-                            {model.architecture.vocab_size.toLocaleString()}
-                          </div>
-                        </>
-                      )}
+                      <div className="grid grid-cols-2 gap-4 text-sm text-gray-400">
+                        <div>
+                          <span className="font-medium">Size:</span> {formatFileSize(model.size)}
+                        </div>
+                        <div>
+                          <span className="font-medium">Modified:</span>{' '}
+                          {new Date(model.modified_at).toLocaleDateString()}
+                        </div>
+                        
+                        {model.details && (
+                          <>
+                            {model.details.parameter_size && (
+                              <div>
+                                <span className="font-medium">Parameters:</span> {model.details.parameter_size}
+                              </div>
+                            )}
+                            {model.details.quantization_level && (
+                              <div>
+                                <span className="font-medium">Quantization:</span> {model.details.quantization_level}
+                              </div>
+                            )}
+                            {model.details.family && (
+                              <div>
+                                <span className="font-medium">Family:</span> {model.details.family}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
+                </div>
+              ))}
+            </div>
+          )
+        ) : (
+          // Fractal Models List
+          models.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              No models uploaded yet. Upload a GGUF model to get started.
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {models.map(model => (
+                <div
+                  key={model.id}
+                  className={`bg-gray-800 rounded-lg p-4 border ${
+                    selectedModel === model.id
+                      ? 'border-purple-500'
+                      : 'border-gray-700 hover:border-gray-600'
+                  } transition-colors cursor-pointer`}
+                  onClick={() => setSelectedModel(model.id)}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        {getStatusIcon(model.status)}
+                        <h3 className="font-semibold text-lg">{model.name}</h3>
+                        <span
+                          className={`px-2 py-1 rounded text-xs border ${getStatusColor(
+                            model.status
+                          )}`}
+                        >
+                          {model.status}
+                        </span>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4 text-sm text-gray-400">
+                        <div>
+                          <span className="font-medium">Size:</span> {formatFileSize(model.file_size)}
+                        </div>
+                        <div>
+                          <span className="font-medium">Created:</span>{' '}
+                          {new Date(model.created_at).toLocaleDateString()}
+                        </div>
+                        
+                        {model.architecture && (
+                          <>
+                            <div>
+                              <span className="font-medium">Type:</span> {model.architecture.model_type}
+                            </div>
+                            <div>
+                              <span className="font-medium">Layers:</span> {model.architecture.n_layers}
+                            </div>
+                            <div>
+                              <span className="font-medium">Embedding:</span> {model.architecture.embedding_dim}D
+                            </div>
+                            <div>
+                              <span className="font-medium">Vocab:</span>{' '}
+                              {model.architecture.vocab_size.toLocaleString()}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
 
-                  <div className="flex gap-2">
-                    {model.status === 'ready' && (
+                    <div className="flex gap-2">
+                      {model.status === 'ready' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleConvert(model.id);
+                          }}
+                          className="p-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
+                          title="Convert to fractal"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                        </button>
+                      )}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleConvert(model.id);
+                          handleDelete(model.id);
                         }}
-                        className="p-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
-                        title="Convert to fractal"
+                        className="p-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-colors"
+                        title="Delete model"
                       >
-                        <RefreshCw className="w-4 h-4" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
-                    )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(model.id);
-                      }}
-                      className="p-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-colors"
-                      title="Delete model"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )
         )}
       </div>
     </div>

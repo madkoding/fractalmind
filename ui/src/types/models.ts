@@ -58,3 +58,26 @@ export interface UpdateStrategyResponse {
 }
 
 export type ModelStrategy = 'fractal' | 'ollama';
+
+// Ollama Model Types
+export interface OllamaModelDetails {
+  parent_model?: string;
+  format?: string;
+  family?: string;
+  families?: string[];
+  parameter_size?: string;
+  quantization_level?: string;
+}
+
+export interface OllamaModel {
+  name: string;
+  model: string;
+  modified_at: string;
+  size: number;
+  digest: string;
+  details?: OllamaModelDetails;
+}
+
+export interface ListOllamaModelsResponse {
+  models: OllamaModel[];
+}

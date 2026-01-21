@@ -217,6 +217,11 @@ class ApiClient {
       body: JSON.stringify(request),
     });
   }
+
+  // List Ollama models
+  async listOllamaModels(): Promise<import('@/types/models').ListOllamaModelsResponse> {
+    return this.request<import('@/types/models').ListOllamaModelsResponse>('/v1/models/ollama');
+  }
 }
 
 // Singleton instance

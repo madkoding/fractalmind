@@ -43,6 +43,7 @@ fn api_v1_routes() -> Router<SharedState> {
         .route("/models/upload", post(handlers::upload_model))
         .route("/models/convert", post(handlers::convert_model))
         .route("/models", get(handlers::list_models))
+        .route("/models/ollama", get(handlers::list_ollama_models))
         .route("/models/:id", get(handlers::get_model))
         .route("/models/:id", delete(handlers::delete_model))
         .route("/config/model-strategy", patch(handlers::update_strategy))
@@ -63,6 +64,7 @@ pub fn print_routes() {
     tracing::info!("  POST /v1/models/upload - Upload GGUF model");
     tracing::info!("  POST /v1/models/convert - Convert model to fractal");
     tracing::info!("  GET  /v1/models     - List all models");
+    tracing::info!("  GET  /v1/models/ollama - List Ollama models");
     tracing::info!("  GET  /v1/models/:id - Get model details");
     tracing::info!("  DELETE /v1/models/:id - Delete model");
     tracing::info!("  PATCH /v1/config/model-strategy - Update model strategy");

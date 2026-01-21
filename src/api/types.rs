@@ -401,3 +401,31 @@ pub struct UpdateStrategyResponse {
     pub current_strategy: String,
     pub message: String,
 }
+
+/// Information about an Ollama model
+#[derive(Serialize)]
+pub struct OllamaModelInfo {
+    pub name: String,
+    pub model: String,
+    pub modified_at: String,
+    pub size: u64,
+    pub digest: String,
+    pub details: Option<OllamaModelDetails>,
+}
+
+/// Detailed information about an Ollama model
+#[derive(Serialize)]
+pub struct OllamaModelDetails {
+    pub parent_model: Option<String>,
+    pub format: Option<String>,
+    pub family: Option<String>,
+    pub families: Option<Vec<String>>,
+    pub parameter_size: Option<String>,
+    pub quantization_level: Option<String>,
+}
+
+/// Response listing Ollama models
+#[derive(Serialize)]
+pub struct ListOllamaModelsResponse {
+    pub models: Vec<OllamaModelInfo>,
+}
