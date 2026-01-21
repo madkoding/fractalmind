@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  surrealdb:
+    image: surrealdb/surrealdb:v1.5.6
+    container_name: fractalmind-db
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    ports:
+      - "8000:8000"
+    command:
+      - start
+      - --log=info
+      - --user=root
+      - --pass=root
+      - file:/data/fractalmind.db
+    volumes:
+      - ./data/surrealdb:/data
+    environment:
+      - SURREAL_PATH=/data
+    healthcheck:
+      test: ["CMD", "/surreal", "isready", "--conn", "http://localhost:8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - fractalmind-network
+
+  # Servicio backend Rust (se ejecutará después de la implementación)
+  fractalmind-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fractalmind-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      surrealdb:
+        condition: service_healthy
+    environment:
+      - RUST_LOG=debug,fractalmind=trace
+      - SURREAL_URL=ws://surrealdb:8000
+      - SURREAL_USER=root
+      - SURREAL_PASS=root
+      - SURREAL_NS=fractalmind
+      - SURREAL_DB=knowledge
+    volumes:
+      - ./target:/app/target  # Cache de compilación para desarrollo
+    networks:
+      - fractalmind-network
+    profiles:
+      - full  # Solo se inicia con: docker-compose --profile full up
+
+networks:
+  fractalmind-network:
+    driver: bridge
+
+volumes:
+  surrealdb-data:

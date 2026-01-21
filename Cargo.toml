@@ -1,0 +1,102 @@
+[package]
+name = "fractalmind"
+version = "0.1.0"
+edition = "2021"
+authors = ["MadKoding"]
+description = "Fractal-Mind: Sistema de IA con memoria evolutiva y aprendizaje autónomo"
+
+[dependencies]
+# Async Runtime
+tokio = { version = "1.40", features = ["full"] }
+tokio-util = "0.7"
+async-trait = "0.1"
+
+# Web Framework
+axum = { version = "0.7", features = ["macros", "multipart"] }
+tower = { version = "0.5", features = ["full"] }
+tower-http = { version = "0.5", features = ["trace", "cors", "timeout"] }
+http = "1.1"
+
+# Database
+# Nota: usa kv-mem para desarrollo rápido. Para producción con persistencia,
+# usa kv-rocksdb después de instalar: base-devel, clang, cmake
+surrealdb = { version = "1.5", features = ["kv-mem", "protocol-ws", "protocol-http"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Embeddings & Vector Search
+fastembed = { version = "3.11", default-features = false, features = ["online"], optional = true }
+ndarray = "0.16"
+
+# Graph Algorithms
+petgraph = "0.6"
+
+# Cache
+lru = "0.12"
+
+# HTTP Client (para búsqueda web en fase REM)
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# URL parsing y encoding
+url = "2.5"
+urlencoding = "2.1"
+
+# Logging & Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Configuration
+dotenv = "0.15"
+config = "0.14"
+
+# Error Handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# UUID Generation
+uuid = { version = "1.10", features = ["v4", "serde"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# OCR para ingesta de imágenes
+tesseract = { version = "0.14", optional = true }
+
+# PDF parsing
+pdf-extract = { version = "0.7", optional = true }
+
+# Clustering algorithms para RAPTOR
+linfa = { version = "0.7", optional = true }
+linfa-clustering = { version = "0.7", optional = true }
+
+[dev-dependencies]
+mockall = "0.13"
+criterion = "0.5"
+
+[features]
+default = []
+embeddings = ["fastembed"]
+ocr = ["tesseract"]
+pdf = ["pdf-extract"]
+clustering = ["linfa", "linfa-clustering"]
+
+[profile.dev]
+opt-level = 0
+debug = true
+codegen-units = 256
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[lib]
+name = "fractalmind"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fractalmind"
+path = "src/main.rs"

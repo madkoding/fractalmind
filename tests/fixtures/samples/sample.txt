@@ -1,0 +1,3 @@
+Hello Fractal Mind!
+
+This is a sample document used for ingestion tests. It contains a few sentences to test chunking and extraction.

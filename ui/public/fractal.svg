@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <defs>
+    <linearGradient id="fractalGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0ea5e9;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0284c7;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Brain-like fractal pattern -->
+  <circle cx="50" cy="50" r="45" fill="url(#fractalGrad)" opacity="0.1"/>
+  <circle cx="50" cy="50" r="35" fill="url(#fractalGrad)" opacity="0.2"/>
+  <circle cx="50" cy="50" r="25" fill="url(#fractalGrad)" opacity="0.3"/>
+  <!-- Neural connections -->
+  <path d="M50 15 L50 35 M50 65 L50 85 M15 50 L35 50 M65 50 L85 50"
+        stroke="url(#fractalGrad)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M25 25 L40 40 M60 40 L75 25 M25 75 L40 60 M60 60 L75 75"
+        stroke="url(#fractalGrad)" stroke-width="2" stroke-linecap="round"/>
+  <!-- Center node -->
+  <circle cx="50" cy="50" r="12" fill="url(#fractalGrad)"/>
+  <!-- Outer nodes -->
+  <circle cx="50" cy="15" r="6" fill="url(#fractalGrad)"/>
+  <circle cx="50" cy="85" r="6" fill="url(#fractalGrad)"/>
+  <circle cx="15" cy="50" r="6" fill="url(#fractalGrad)"/>
+  <circle cx="85" cy="50" r="6" fill="url(#fractalGrad)"/>
+  <circle cx="25" cy="25" r="4" fill="url(#fractalGrad)"/>
+  <circle cx="75" cy="25" r="4" fill="url(#fractalGrad)"/>
+  <circle cx="25" cy="75" r="4" fill="url(#fractalGrad)"/>
+  <circle cx="75" cy="75" r="4" fill="url(#fractalGrad)"/>
+</svg>

@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-800;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-600 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-500;
+}
+
+/* Selection */
+::selection {
+  @apply bg-fractal-500/30;
+}
+
+/* Focus styles */
+*:focus-visible {
+  @apply outline-none ring-2 ring-fractal-500 ring-offset-2 ring-offset-gray-900;
+}
+
+/* Base styles */
+body {
+  @apply antialiased;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Markdown content styles */
+.prose-invert code {
+  @apply bg-gray-800 px-1.5 py-0.5 rounded text-sm;
+}
+
+.prose-invert pre {
+  @apply bg-gray-800 p-4 rounded-lg overflow-x-auto;
+}
+
+.prose-invert pre code {
+  @apply bg-transparent p-0;
+}
+
+/* Animation utilities */
+.animate-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Neural pulse effect */
+.neural-pulse {
+  animation: neuralPulse 2s ease-in-out infinite;
+}
+
+@keyframes neuralPulse {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
