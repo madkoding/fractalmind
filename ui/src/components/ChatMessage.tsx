@@ -41,6 +41,9 @@ export function ChatMessage({ message }: ChatMessageProps) {
           <span className="text-xs text-gray-500">
             {new Date(message.timestamp).toLocaleTimeString()}
           </span>
+          {message.role === 'assistant' && message.content.includes('(Resolved in') && (
+            <span className="ml-2 text-xs text-gray-400">{message.content.match(/\(Resolved in (\d+ ms)\)/)?.[1]}</span>
+          )
         </div>
         {isUser ? (
           <div className="text-gray-200 whitespace-pre-wrap break-words">

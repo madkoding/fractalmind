@@ -95,16 +95,18 @@ export const useChatStore = create<ChatState>()(
 
         try {
           // Call API
+          const startMs = Date.now();
           const response: AskResponse = await api.ask({
             question: content,
             namespace,
           });
+          const latencyMs = (response as any).latency_ms ?? (Date.now() - startMs);
 
           // Add assistant message
           const assistantMessage: Message = {
             id: generateId(),
             role: 'assistant',
-            content: response.answer,
+            content: `${response.answer}\n\n(Resolved in ${latencyMs} ms)`,
             timestamp: Date.now(),
           };
 
