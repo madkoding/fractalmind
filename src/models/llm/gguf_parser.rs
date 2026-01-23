@@ -104,6 +104,8 @@ pub struct GGUFParser {
     metadata: HashMap<String, GGUFValue>,
     tensors: Vec<GGUFTensorInfo>,
     version: u32,
+    /// Offset where tensor data starts (after header, metadata, and tensor info)
+    data_offset: u64,
 }
 
 impl GGUFParser {
@@ -155,10 +157,17 @@ impl GGUFParser {
             tensors.push(tensor_info);
         }
 
+        // The data offset is the current cursor position, aligned to 32 bytes
+        let current_pos = cursor.position();
+        let data_offset = (current_pos + 31) & !31;
+        
+        debug!("GGUF data offset: {} (cursor at {}, aligned to 32 bytes)", data_offset, current_pos);
+
         Ok(Self {
             metadata,
             tensors,
             version,
+            data_offset,
         })
     }
 
@@ -279,6 +288,11 @@ impl GGUFParser {
     /// Obtiene todos los metadatos
     pub fn get_metadata(&self) -> &HashMap<String, GGUFValue> {
         &self.metadata
+    }
+
+    /// Obtiene el offset donde empiezan los datos de los tensores
+    pub fn get_data_offset(&self) -> u64 {
+        self.data_offset
     }
 }
 

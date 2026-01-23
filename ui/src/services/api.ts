@@ -187,7 +187,7 @@ class ApiClient {
 
   // Convert model to fractal structure
   async convertModel(request: ConvertModelRequest): Promise<ConvertModelResponse> {
-    return this.request<ConvertModelResponse>('/v1/models/convert', {
+    return this.request<ConvertModelResponse>(`/v1/models/${request.model_id}/convert`, {
       method: 'POST',
       body: JSON.stringify(request),
     });
@@ -242,12 +242,12 @@ class ApiClient {
     totalChunks: number,
     chunkData: Blob
   ): Promise<import('@/types/models').UploadChunkResponse> {
-    const response = await fetch(`${this.baseUrl}/v1/models/upload/chunk/${uploadId}`, {
-      method: 'PUT',
-      headers: {
-        'x-chunk-index': String(chunkIndex),
-        'x-total-chunks': String(totalChunks),
-      },
+    const params = new URLSearchParams({
+      chunk_index: String(chunkIndex),
+    });
+    
+    const response = await fetch(`${this.baseUrl}/v1/models/upload/${uploadId}/chunk?${params}`, {
+      method: 'POST',
       body: chunkData,
     });
 
@@ -261,20 +261,62 @@ class ApiClient {
 
   // Get upload/conversion progress
   async getProgress(uploadId: string): Promise<import('@/types/models').ProgressResponse> {
-    return this.request<import('@/types/models').ProgressResponse>(`/v1/models/upload/progress/${uploadId}`);
+    return this.request<import('@/types/models').ProgressResponse>(`/v1/models/upload/${uploadId}/status`);
+  }
+
+  // Stream progress updates (SSE)
+  async *progressStream(uploadId: string): AsyncGenerator<import('@/types/models').ProgressResponse, void, unknown> {
+    const response = await fetch(`${this.baseUrl}/v1/models/upload/${uploadId}/progress`, {
+      headers: {
+        'Accept': 'text/event-stream',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('No response body');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          if (data === '[DONE]') return;
+          try {
+            yield JSON.parse(data);
+          } catch {
+            // Ignore invalid JSON
+          }
+        }
+      }
+    }
   }
 
   // Finalize upload
   async finalizeUpload(uploadId: string): Promise<import('@/types/models').FinalizeUploadResponse> {
-    return this.request<import('@/types/models').FinalizeUploadResponse>(`/v1/models/upload/finalize/${uploadId}`, {
+    return this.request<import('@/types/models').FinalizeUploadResponse>(`/v1/models/upload/${uploadId}/finalize`, {
       method: 'POST',
     });
   }
 
   // Cancel upload
   async cancelUpload(uploadId: string): Promise<import('@/types/models').CancelUploadResponse> {
-    return this.request<import('@/types/models').CancelUploadResponse>(`/v1/models/upload/cancel/${uploadId}`, {
-      method: 'DELETE',
+    return this.request<import('@/types/models').CancelUploadResponse>(`/v1/models/upload/${uploadId}/cancel`, {
+      method: 'POST',
     });
   }
 }

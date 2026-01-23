@@ -1,5 +1,4 @@
-import React, { useRef, useState } from 'react';
-import { api } from '@/services/api';
+import { useRef, useState } from 'react';
 import { useIngest } from '@/hooks/useApi';
 
 export function IngestFileUploader({

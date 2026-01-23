@@ -14,28 +14,29 @@
     "test": "vitest"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.400.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "zustand": "^4.5.2",
-    "@tauri-apps/api": "^2.0.0",
-    "lucide-react": "^0.400.0",
-    "clsx": "^2.1.1",
     "react-markdown": "^9.0.1",
-    "remark-gfm": "^4.0.0"
+    "remark-gfm": "^4.0.0",
+    "vibe-kanban-web-companion": "^0.0.5",
+    "zustand": "^4.5.2"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@testing-library/jest-dom": "^6.0.0",
+    "@testing-library/react": "^14.0.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
-    "@tauri-apps/cli": "^2.0.0",
     "autoprefixer": "^10.4.19",
+    "jsdom": "^22.0.0",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.4",
     "typescript": "^5.5.2",
     "vite": "^5.3.1",
-    "vitest": "^1.0.0",
-    "@testing-library/react": "^14.0.0",
-    "@testing-library/jest-dom": "^6.0.0",
-    "jsdom": "^22.0.0"
+    "vitest": "^1.0.0"
   }
 }

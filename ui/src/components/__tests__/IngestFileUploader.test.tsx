@@ -1,6 +1,5 @@
-import React from 'react';
 import { render, fireEvent, screen, waitFor } from '@testing-library/react';
-import { vi } from 'vitest';
+import { vi, describe, it, expect } from 'vitest';
 import IngestFileUploader from '@/components/IngestFileUploader';
 import * as apiModule from '@/services/api';
 
@@ -12,7 +11,6 @@ describe('IngestFileUploader', () => {
 
     render(<IngestFileUploader />);
 
-    const pick = screen.getByTestId('pick-file');
     const namespace = screen.getByTestId('namespace-input') as HTMLInputElement;
     const tags = screen.getByTestId('tags-input') as HTMLInputElement;
     const upload = screen.getByTestId('upload-button');

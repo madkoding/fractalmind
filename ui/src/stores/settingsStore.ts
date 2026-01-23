@@ -16,7 +16,7 @@ const DEFAULT_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const DEFAULT_SETTINGS: Settings = {
   apiUrl: DEFAULT_API_URL,
-  namespace: 'global',
+  namespace: 'global_knowledge',
   userId: '',
   theme: 'dark',
   contextLimit: 10,

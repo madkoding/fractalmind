@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::{extract::{State, Multipart}, Json};
+use serde::{Deserialize};
 use serde_json;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
@@ -14,7 +15,8 @@ use uuid::Uuid;
 use crate::services::ingestion::extractors::{ExtractorFactory, ContentExtractor};
 use crate::services::ingestion::config::{FileType, IngestionConfig};
 use crate::services::ingestion::chunker::TextChunker;
-use crate::db::queries::NodeRepository;
+use crate::services::FractalBuilder;
+use crate::db::queries::{NodeRepository, EdgeRepository};
 
 use crate::cache::{EmbeddingCache, NodeCache};
 use crate::db::connection::DatabaseConnection;
@@ -22,8 +24,9 @@ use crate::models::llm::ModelBrain;
 use crate::models::{EmbeddingVector, FractalNode, NodeMetadata};
 
 use super::error::{ApiError, ApiResult};
-use super::progress::{ProgressTracker, register_session, update_progress, cleanup_session};
+use super::progress::ProgressTracker;
 use super::types::*;
+use crate::services::UploadSessionManager;
 
 /// Application state shared across handlers
 pub struct AppState {
@@ -38,9 +41,12 @@ pub struct AppState {
 
     /// Embedding cache
     pub embedding_cache: EmbeddingCache,
-
-    /// Progress tracker for ingestion operations
+    
+    /// Progress tracker for long-running operations
     pub progress_tracker: ProgressTracker,
+    
+    /// Upload session manager for chunked model uploads
+    pub upload_manager: Arc<UploadSessionManager>,
 }
 
 /// Thread-safe shared state
@@ -106,95 +112,96 @@ pub async fn ingest(
 
     debug!("Ingesting content into namespace: {}", namespace);
 
-    // Read config for chunking parameters
-    let config = IngestionConfig::from_env();
-    let chunker = TextChunker::from_config(&config);
-
-    // Split content into chunks
-    let chunking_result = chunker.chunk(&request.content);
-    debug!(
-        "Content split into {} chunks (original length: {} chars)",
-        chunking_result.count(),
-        chunking_result.original_length
-    );
-
-    // Store chunk data before iterating
-    let chunks = chunking_result.chunks;
-
-    // Process each chunk
-    let mut node_ids = Vec::new();
-    let mut embedding_dimension = None;
-
-    for chunk in &chunks {
-        // Check embedding cache first
-        let embedding_vector = if let Some(cached) = state.embedding_cache.get(&chunk.content) {
-            debug!("Using cached embedding for chunk {}", chunk.index);
-            cached
-        } else {
-            // Generate embedding for this chunk
-            let embedding_response = state
-                .brain
-                .embed(&chunk.content)
-                .await
-                .map_err(|e| ApiError::EmbeddingError(format!("Chunk {} failed: {}", chunk.index, e)))?;
-
-            debug!(
-                "Generated embedding for chunk {}: {}D, latency: {}ms",
-                chunk.index, embedding_response.dimension, embedding_response.latency_ms
-            );
-
-            embedding_dimension = Some(embedding_response.dimension);
-
-            // Cache the embedding
-            let embedding_vector = EmbeddingVector::new(
-                embedding_response.embedding.clone(),
-                crate::models::EmbeddingModel::NomicEmbedTextV15,
-            );
-            state.embedding_cache.put(&chunk.content, embedding_vector.clone());
-            embedding_vector
-        };
-
-        // Create metadata with chunk information
-        let mut metadata = NodeMetadata::default();
-        if let Some(source) = &request.source {
-            metadata.source = format!("{} (chunk {}/{})", source, chunk.index + 1, chunk.total);
-        }
-        if let Some(tags) = &request.tags {
-            metadata.tags = tags.clone();
-        }
-        if let Some(lang) = &request.language {
-            metadata.language = lang.clone();
-        }
-
-        // Create fractal node for chunk
-        let _node = FractalNode::new_leaf(
-            chunk.content.clone(),
-            embedding_vector,
-            namespace.clone(),
-            request.source.clone(),
-            metadata,
-        );
-
-        // TODO: Save node to database
-        // let node_repo = NodeRepository::new(&state.db);
-        // let node_id = node_repo.create(&node).await?;
-
+    // Check embedding cache first
+    if let Some(cached) = state.embedding_cache.get(&request.content) {
+        debug!("Using cached embedding");
         let node_id = Uuid::new_v4().to_string();
-        node_ids.push(node_id);
+
+        return Ok(Json(IngestResponse {
+            success: true,
+            node_id: Some(node_id),
+            embedding_dimension: Some(cached.dimension),
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: "Content ingested (embedding from cache)".to_string(),
+        }));
     }
 
-    let message = if node_ids.len() > 1 {
-        format!("Content ingested successfully ({} chunks created)", node_ids.len())
-    } else {
-        "Content ingested successfully".to_string()
+    // Generate embedding
+    let embedding_response = state
+        .brain
+        .embed(&request.content)
+        .await
+        .map_err(|e| ApiError::EmbeddingError(e.to_string()))?;
+
+    info!(
+        "Generated embedding: {}D, latency: {}ms",
+        embedding_response.dimension, embedding_response.latency_ms
+    );
+
+    // Cache the embedding
+    let embedding_vector = EmbeddingVector::new(
+        embedding_response.embedding.clone(),
+        crate::models::EmbeddingModel::NomicEmbedTextV15,
+    );
+    state.embedding_cache.put(&request.content, embedding_vector.clone());
+
+    // Create metadata
+    let mut metadata = NodeMetadata::default();
+    if let Some(source) = &request.source {
+        metadata.source = source.clone();
+    }
+    if let Some(tags) = &request.tags {
+        metadata.tags = tags.clone();
+    }
+    if let Some(lang) = &request.language {
+        metadata.language = lang.clone();
+    }
+
+    let namespace_clone = namespace.clone();
+
+    // Create fractal node
+    let node = FractalNode::new_leaf(
+        request.content.clone(),
+        embedding_vector,
+        namespace,
+        request.source.clone(),
+        metadata,
+    );
+
+    // Save node to database
+    let node_repo = NodeRepository::new(&state.db);
+    let node_id = node_repo
+        .create(&node)
+        .await
+        .map_err(|e| ApiError::DatabaseError(format!("Failed to create node: {}", e)))?
+        .to_string();
+
+    // Auto-build fractal structure
+    let config = crate::services::FractalBuilderConfig::new()
+        .with_summaries(false)
+        .with_min_nodes(3);
+    let fractal_builder = FractalBuilder::new(&state.db, config);
+    let fractal_msg = match fractal_builder.build_for_namespace(&namespace_clone, Some(&state.brain)).await {
+        Ok(result) if result.parent_nodes_created > 0 => {
+            info!(
+                "Fractal structure updated: {} parent nodes, {} edges",
+                result.parent_nodes_created, result.edges_created
+            );
+            format!(" + fractal updated ({} parents)", result.parent_nodes_created)
+        }
+        Ok(_) => String::new(),
+        Err(e) => {
+            warn!("Failed to build fractal structure: {}", e);
+            String::new()
+        }
     };
 
     Ok(Json(IngestResponse {
         success: true,
-        node_id: node_ids.first().cloned(),
-        embedding_dimension,
+        node_id: Some(node_id),
+        embedding_dimension: Some(embedding_response.dimension),
         latency_ms: start.elapsed().as_millis() as u64,
-        message,
+        message: format!("Content ingested successfully{}", fractal_msg),
     }))
 }
 
@@ -202,14 +209,8 @@ pub async fn ingest(
 pub async fn ingest_file(
     State(state): State<SharedState>,
     mut multipart: Multipart,
-) -> ApiResult<Json<IngestFileResponse>> {
+) -> ApiResult<Json<IngestResponse>> {
     let start = Instant::now();
-
-    // Register progress session BEFORE acquiring lock
-    let session_id = {
-        let state_read = state.read().await;
-        register_session(&state_read.progress_tracker).await
-    };
 
     // Read config for ingestion limits and features
     let config = IngestionConfig::from_env();
@@ -303,15 +304,6 @@ pub async fn ingest_file(
         return Err(ApiError::ValidationError("Unsupported or unknown file type".to_string()));
     }
 
-    // Update progress: extracting
-    {
-        let state_read = state.read().await;
-        update_progress(&state_read.progress_tracker, &session_id, |p| {
-            p.stage = "extracting".to_string();
-            p.message = Some(format!("Extracting text from {:?} file", file_type));
-        }).await;
-    }
-
     // Choose extractor
     let extractor: Box<dyn ContentExtractor> = match file_type {
         FileType::Text => ExtractorFactory::text(),
@@ -351,41 +343,19 @@ pub async fn ingest_file(
         return Err(ApiError::ValidationError("Could not extract text from file".to_string()));
     }
 
-    // Update progress: chunking
-    {
-        let state_read = state.read().await;
-        update_progress(&state_read.progress_tracker, &session_id, |p| {
-            p.stage = "chunking".to_string();
-            p.message = Some(format!("Splitting text ({} chars)", extraction.text.len()));
-        }).await;
-    }
-
     // Use provided namespace or default
     let namespace = namespace.unwrap_or_else(|| "global_knowledge".to_string());
 
-    // Apply chunking to extracted text
+    // Chunk the extracted text to avoid exceeding embedding model context limits
     let chunker = TextChunker::from_config(&config);
     let chunking_result = chunker.chunk(&extraction.text);
-    debug!(
-        "File content split into {} chunks (original length: {} chars)",
+    
+    info!(
+        "Chunked document into {} chunks (original: {} chars, avg chunk: {} chars)",
         chunking_result.count(),
-        chunking_result.original_length
+        chunking_result.original_length,
+        chunking_result.avg_chunk_size
     );
-
-    // Store chunk metadata before iterating
-    let was_split = chunking_result.was_split();
-    let chunks = chunking_result.chunks;
-    let total_chunks = chunks.len();
-
-    // Update progress: embedding phase
-    {
-        let state_read = state.read().await;
-        update_progress(&state_read.progress_tracker, &session_id, |p| {
-            p.stage = "embedding".to_string();
-            p.total_chunks = total_chunks;
-            p.message = Some(format!("Generating embeddings for {} chunks", total_chunks));
-        }).await;
-    }
 
     // Generate embedding (allow tests to disable real model calls)
     let state = state.read().await;
@@ -394,48 +364,38 @@ pub async fn ingest_file(
         .map(|v| v == "true")
         .unwrap_or(false);
 
+    let skip_db = std::env::var("TEST_SKIP_DB_WRITES").map(|v| v == "true").unwrap_or(false);
+    let node_repo = NodeRepository::new(&state.db);
+
     // Process each chunk
-    let mut node_ids = Vec::new();
-    let mut embedding_dimension = None;
+    let mut created_node_ids: Vec<String> = Vec::new();
+    let mut embedding_dimension: Option<usize> = None;
+    let source_filename = filename.clone().unwrap_or_else(|| "uploaded_file".to_string());
 
-    for chunk in &chunks {
-        // Update progress: current chunk
-        update_progress(&state.progress_tracker, &session_id, |p| {
-            p.current_chunk = chunk.index + 1;
-            p.message = Some(format!("Embedding chunk {}/{}", chunk.index + 1, total_chunks));
-        }).await;
-
+    for chunk in chunking_result.chunks {
+        // Generate embedding for this chunk
         let embedding_response = if disable_embedding {
-            // Build a fake embedding response using EMBEDDING_DIMENSION env var
             let dim = std::env::var("EMBEDDING_DIMENSION")
                 .ok()
                 .and_then(|s| s.parse::<usize>().ok())
                 .unwrap_or(768);
-            let embedding_vec = vec![0.0f32; dim];
             crate::models::llm::traits_llm::EmbeddingResponse {
-                embedding: embedding_vec,
+                embedding: vec![0.0f32; dim],
                 dimension: dim,
                 model: "test-mock".to_string(),
                 latency_ms: 0,
             }
         } else {
-            // Check embedding cache first
-            if let Some(cached) = state.embedding_cache.get(&chunk.content) {
-                debug!("Using cached embedding for chunk {}", chunk.index);
-                // Convert cached embedding back to EmbeddingResponse format
-                crate::models::llm::traits_llm::EmbeddingResponse {
-                    embedding: cached.vector.clone(),
-                    dimension: cached.dimension,
-                    model: cached.model.model_name().to_string(),
-                    latency_ms: 0,
-                }
-            } else {
-                state
-                    .brain
-                    .embed(&chunk.content)
-                    .await
-                    .map_err(|e| ApiError::EmbeddingError(format!("Chunk {} failed: {}", chunk.index, e)))?
-            }
+            state
+                .brain
+                .embed(&chunk.content)
+                .await
+                .map_err(|e| ApiError::EmbeddingError(format!(
+                    "Embedding failed for chunk {}/{}: {}",
+                    chunk.index + 1,
+                    chunk.total,
+                    e
+                )))?
         };
 
         embedding_dimension = Some(embedding_response.dimension);
@@ -445,30 +405,11 @@ pub async fn ingest_file(
             embedding_response.embedding.clone(),
             crate::models::EmbeddingModel::NomicEmbedTextV15,
         );
-        
-        if !disable_embedding {
-            state.embedding_cache.put(&chunk.content, embedding_vector.clone());
-        }
+        state.embedding_cache.put(&chunk.content, embedding_vector.clone());
 
-        // Update embeddings completed
-        update_progress(&state.progress_tracker, &session_id, |p| {
-            p.embeddings_completed = chunk.index + 1;
-        }).await;
-
-        // Update progress: persisting
-        update_progress(&state.progress_tracker, &session_id, |p| {
-            p.stage = "persisting".to_string();
-            p.message = Some(format!("Saving chunk {}/{} to database", chunk.index + 1, total_chunks));
-        }).await;
-
-        // Prepare metadata with chunk information
+        // Prepare metadata for this chunk
         let mut metadata = NodeMetadata::default();
-        let base_filename = filename.clone().unwrap_or_else(|| "uploaded_file".to_string());
-        metadata.source = if was_split {
-            format!("{} (chunk {}/{})", base_filename, chunk.index + 1, chunk.total)
-        } else {
-            base_filename.clone()
-        };
+        metadata.source = source_filename.clone();
         metadata.source_type = match file_type {
             FileType::Pdf => crate::models::SourceType::Pdf,
             FileType::Image => crate::models::SourceType::Image,
@@ -479,67 +420,86 @@ pub async fn ingest_file(
             .metadata
             .language
             .clone()
-            .or_else(|| language.clone())
+            .or(language.clone())
             .unwrap_or_else(|| "en".to_string());
         if let Some(t) = &tags {
             metadata.tags = t.clone();
         }
+        // Add chunk info to metadata tags
+        metadata.tags.push(format!("chunk:{}/{}", chunk.index + 1, chunk.total));
 
         // Create node for this chunk
         let node = FractalNode::new_leaf(
             chunk.content.clone(),
             embedding_vector,
             namespace.clone(),
-            filename.clone(),
+            Some(source_filename.clone()),
             metadata,
         );
 
-        // Persist (allow tests to skip actual DB writes)
-        let skip_db = std::env::var("TEST_SKIP_DB_WRITES").map(|v| v == "true").unwrap_or(false);
+        // Persist
         let node_id = if skip_db {
-            // Generate a fake node id (UUID) when DB writes are disabled for tests
             Uuid::new_v4().to_string()
         } else {
-            let node_repo = NodeRepository::new(&state.db);
             let created = node_repo
                 .create(&node)
                 .await
-                .map_err(|e| ApiError::DatabaseError(format!("Failed to create node: {}", e)))?;
+                .map_err(|e| ApiError::DatabaseError(format!(
+                    "Failed to create node for chunk {}/{}: {}",
+                    chunk.index + 1,
+                    chunk.total,
+                    e
+                )))?;
             created.to_string()
         };
 
-        node_ids.push(node_id);
-
-        // Update nodes persisted
-        update_progress(&state.progress_tracker, &session_id, |p| {
-            p.nodes_persisted = chunk.index + 1;
-        }).await;
+        created_node_ids.push(node_id);
     }
 
-    // Mark as complete
-    update_progress(&state.progress_tracker, &session_id, |p| {
-        p.stage = "complete".to_string();
-        p.success = true;
-        p.message = Some(format!("Successfully processed {} chunks", total_chunks));
-    }).await;
+    let total_chunks = created_node_ids.len();
+    let first_node_id = created_node_ids.first().cloned();
 
-    // Schedule cleanup after 30 seconds
-    let tracker_clone = state.progress_tracker.clone();
-    let session_id_clone = session_id.clone();
-    tokio::spawn(async move {
-        cleanup_session(&tracker_clone, session_id_clone, 30).await;
-    });
+    info!(
+        "Ingested file '{}' as {} chunks in namespace '{}'",
+        source_filename, total_chunks, namespace
+    );
 
-    let message = if node_ids.len() > 1 {
-        format!("File ingested successfully ({} chunks created)", node_ids.len())
+    // Auto-build fractal structure after ingestion
+    let fractal_result = if !skip_db && total_chunks > 0 {
+        info!("Auto-building fractal structure for namespace '{}'", namespace);
+        let config = crate::services::FractalBuilderConfig::new()
+            .with_summaries(false)
+            .with_min_nodes(3);
+        let fractal_builder = FractalBuilder::new(&state.db, config);
+        match fractal_builder.build_for_namespace(&namespace, Some(&state.brain)).await {
+            Ok(result) => {
+                info!(
+                    "Fractal structure built: {} parent nodes, {} edges",
+                    result.parent_nodes_created, result.edges_created
+                );
+                Some(result)
+            }
+            Err(e) => {
+                warn!("Failed to build fractal structure: {}", e);
+                None
+            }
+        }
     } else {
-        "File ingested successfully".to_string()
+        None
     };
 
-    Ok(Json(IngestFileResponse {
+    let message = if let Some(fr) = fractal_result {
+        format!(
+            "File ingested as {} chunks + fractal built ({} parents, {} edges)",
+            total_chunks, fr.parent_nodes_created, fr.edges_created
+        )
+    } else {
+        format!("File ingested successfully as {} chunks", total_chunks)
+    };
+
+    Ok(Json(IngestResponse {
         success: true,
-        session_id,
-        node_id: node_ids.first().cloned(),
+        node_id: first_node_id,
         embedding_dimension,
         latency_ms: start.elapsed().as_millis() as u64,
         message,
@@ -594,7 +554,7 @@ pub async fn remember(
 // Ask Handler
 // ============================================================================
 
-/// Query the knowledge graph
+/// Query the knowledge graph with RAG (Retrieval Augmented Generation)
 pub async fn ask(
     State(state): State<SharedState>,
     Json(request): Json<AskRequest>,
@@ -608,37 +568,120 @@ pub async fn ask(
     let state = state.read().await;
     let max_results = request.max_results.unwrap_or(5);
     let use_chat = request.use_chat.unwrap_or(true);
+    let include_sources = request.include_sources.unwrap_or(true);
+    let namespace = request.namespace.as_deref().unwrap_or("global_knowledge");
+    let threshold = 0.4; // Lower threshold to get more context
 
     debug!(
-        "Processing question in namespace: {:?}, max_results: {}",
-        request.namespace, max_results
+        "Processing question '{}' in namespace '{}', max_results: {}",
+        request.question, namespace, max_results
     );
 
     // 1. Generate embedding for the question
-    let _query_embedding = state
+    let query_embedding = state
         .brain
         .embed(&request.question)
         .await
         .map_err(|e| ApiError::EmbeddingError(e.to_string()))?;
 
-    // TODO: 2. Search for similar nodes using HNSW index
-    // let similar_nodes = node_repo.search_similar(
-    //     &query_embedding.embedding,
-    //     namespace,
-    //     max_results,
-    // ).await?;
+    // 2. Search for similar nodes using vector similarity
+    let node_repo = NodeRepository::new(&state.db);
+    let search_results = node_repo
+        .search_similar(&query_embedding.embedding, namespace, max_results * 2)
+        .await
+        .map_err(|e| ApiError::DatabaseError(format!("Search failed: {}", e)))?;
 
-    // TODO: 3. Navigate the fractal graph using SSSP with hopsets
-    // TODO: 4. Collect context from relevant nodes
+    // 3. Filter by threshold and check for fractal structure
+    let edge_repo = EdgeRepository::new(&state.db);
+    let has_fractal = check_fractal_structure(&state.db).await;
 
-    // Mock sources for now
-    let sources: Vec<SourceNode> = vec![];
+    let (filtered_results, used_sssp) = if has_fractal && search_results.len() > 1 {
+        // Use SSSP to navigate the fractal graph for better context
+        navigate_with_sssp(search_results, threshold, max_results, &node_repo, &edge_repo).await
+    } else {
+        // Simple vector similarity filtering
+        let results: Vec<SearchResult> = search_results
+            .into_iter()
+            .filter(|(_, similarity)| *similarity >= threshold)
+            .take(max_results)
+            .map(|(node, similarity)| SearchResult {
+                node_id: node.id.as_ref().map(|t| t.to_string()).unwrap_or_default(),
+                content: node.content,
+                similarity,
+                namespace: node.namespace,
+                node_type: format!("{:?}", node.node_type).to_lowercase(),
+                metadata: SearchResultMetadata {
+                    source: node.metadata.source,
+                    tags: node.metadata.tags,
+                },
+                depth_level: Some(node.depth_level),
+                graph_path: None,
+            })
+            .collect();
+        (results, false)
+    };
 
-    // 5. Generate response with chat (if enabled)
+    debug!(
+        "Found {} relevant sources (SSSP: {})",
+        filtered_results.len(),
+        used_sssp
+    );
+
+    // 4. Build context from retrieved sources
+    let context = if filtered_results.is_empty() {
+        String::new()
+    } else {
+        filtered_results
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                let source_info = &r.metadata.source;
+                format!(
+                    "[Source {}] (from: {}, relevance: {:.1}%)\n{}",
+                    i + 1,
+                    source_info,
+                    r.similarity * 100.0,
+                    r.content
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n---\n\n")
+    };
+
+    // 5. Convert to SourceNode for response
+    let sources: Vec<SourceNode> = if include_sources {
+        filtered_results
+            .iter()
+            .map(|r| SourceNode {
+                node_id: r.node_id.clone(),
+                content: r.content.clone(),
+                similarity: r.similarity,
+                source: Some(r.metadata.source.clone()),
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+
+    // 6. Generate response with chat (if enabled)
     let answer = if use_chat {
-        let system_prompt = "You are a knowledge assistant. Answer the following question based on the provided context.\n\
-             If you don't have enough information, say so honestly.\n\
-             Context: (No relevant context found yet)".to_string();
+        let system_prompt = if context.is_empty() {
+            "You are a helpful assistant. The user asked a question but no relevant information was found in the knowledge base. \
+             Answer based on your general knowledge, but clearly indicate that this is not from the stored knowledge.".to_string()
+        } else {
+            format!(
+                "You are a knowledge assistant that answers questions based ONLY on the provided context.\n\
+                 Rules:\n\
+                 - Answer using ONLY information from the context below\n\
+                 - If the context doesn't contain enough information, say so\n\
+                 - Cite which source(s) you used\n\
+                 - Be concise and accurate\n\
+                 - Answer in the same language as the question\n\n\
+                 Context:\n{}\n\n\
+                 ---\nNow answer the user's question based on the above context.",
+                context
+            )
+        };
 
         match state
             .brain
@@ -648,12 +691,25 @@ pub async fn ask(
             Ok(response) => Some(response.content),
             Err(e) => {
                 warn!("Chat generation failed: {}", e);
-                None
+                Some(format!("Error generating response: {}", e))
             }
         }
     } else {
-        None
+        // No chat, just return the context
+        if context.is_empty() {
+            Some("No relevant information found in the knowledge base.".to_string())
+        } else {
+            Some(format!("Found {} relevant sources:\n\n{}", filtered_results.len(), context))
+        }
     };
+
+    info!(
+        "Ask completed: {} sources, chat: {}, SSSP: {}, latency: {}ms",
+        sources.len(),
+        use_chat,
+        used_sssp,
+        start.elapsed().as_millis()
+    );
 
     Ok(Json(AskResponse {
         success: true,
@@ -668,7 +724,7 @@ pub async fn ask(
 // Sync REM Handler
 // ============================================================================
 
-/// Trigger REM phase synchronization
+/// Trigger REM phase synchronization - consolidates memories and builds fractal hierarchy
 pub async fn sync_rem(
     State(state): State<SharedState>,
     Json(request): Json<SyncRemRequest>,
@@ -678,44 +734,78 @@ pub async fn sync_rem(
     let state = state.read().await;
     let max_nodes = request.max_nodes.unwrap_or(100);
     let enable_clustering = request.enable_clustering.unwrap_or(true);
+    let namespace = request.namespace.as_deref().unwrap_or("global_knowledge");
 
     info!(
-        "Starting REM phase sync (max_nodes: {}, clustering: {})",
-        max_nodes, enable_clustering
+        "Starting REM phase sync (namespace: {}, max_nodes: {}, clustering: {})",
+        namespace, max_nodes, enable_clustering
     );
 
-    // TODO: 1. Get nodes with status "incomplete"
-    // let incomplete_nodes = node_repo.get_by_status(NodeStatus::Incomplete).await?;
+    let node_repo = NodeRepository::new(&state.db);
+    let mut nodes_processed = 0;
+    let mut nodes_created = 0;
+    let clusters_formed;
 
-    // TODO: 2. For each incomplete node, optionally perform web search
-    // if request.enable_web_search.unwrap_or(false) { ... }
+    // 1. Get all leaf nodes in namespace for potential consolidation
+    let all_nodes = node_repo
+        .get_by_namespace(namespace)
+        .await
+        .map_err(|e| ApiError::DatabaseError(format!("Failed to list nodes: {}", e)))?;
 
-    // TODO: 3. Summarize gathered information
-    // TODO: 4. Create new synthesized nodes
+    let leaf_nodes: Vec<_> = all_nodes
+        .into_iter()
+        .filter(|n| n.depth_level == 0)
+        .take(max_nodes)
+        .collect();
 
-    // TODO: 5. Perform RAPTOR clustering if enabled
-    // if enable_clustering { ... }
+    nodes_processed = leaf_nodes.len();
+    info!("Found {} leaf nodes to process", nodes_processed);
 
-    // For now, verify the summarizer works
-    let test_text = "This is a test of the REM phase summarization capability.";
-    match state.brain.summarize(test_text).await {
-        Ok(summary) => {
-            debug!("REM phase summarizer test passed: {}", summary);
+    // 2. Build fractal hierarchy using RAPTOR if we have enough nodes
+    if enable_clustering && leaf_nodes.len() >= 3 {
+        info!("Building fractal hierarchy with RAPTOR clustering...");
+        
+        let config = crate::services::FractalBuilderConfig::new()
+            .with_summaries(true)  // Enable LLM summaries for parent nodes
+            .with_min_nodes(3);
+        
+        let fractal_builder = crate::services::FractalBuilder::new(&state.db, config);
+        
+        match fractal_builder.build_for_namespace(namespace, Some(&state.brain)).await {
+            Ok(result) => {
+                nodes_created = result.parent_nodes_created;
+                clusters_formed = result.edges_created;
+                info!(
+                    "RAPTOR clustering completed: {} parent nodes, {} edges",
+                    result.parent_nodes_created, result.edges_created
+                );
+            }
+            Err(e) => {
+                warn!("RAPTOR clustering failed: {}", e);
+                clusters_formed = 0;
+            }
         }
-        Err(e) => {
-            error!("REM phase summarizer failed: {}", e);
-            return Err(ApiError::LlmError(format!("Summarizer failed: {}", e)));
-        }
+    } else {
+        clusters_formed = 0;
     }
+
+    let elapsed = start.elapsed().as_millis() as u64;
+    info!(
+        "REM phase completed in {}ms: {} processed, {} created, {} clusters",
+        elapsed, nodes_processed, nodes_created, clusters_formed
+    );
 
     Ok(Json(SyncRemResponse {
         success: true,
-        nodes_processed: 0,
-        nodes_created: 0,
+        nodes_processed,
+        nodes_created,
         nodes_updated: 0,
-        clusters_formed: 0,
-        latency_ms: start.elapsed().as_millis() as u64,
-        message: "REM phase sync completed (development mode)".to_string(),
+        clusters_formed,
+        latency_ms: elapsed,
+        message: format!(
+            "REM phase completed: {} nodes processed, {} created, {} clusters formed",
+            nodes_processed, nodes_created, clusters_formed
+        ),
     }))
 }
 
@@ -771,7 +861,7 @@ pub async fn memory_update(
 // Search Handler
 // ============================================================================
 
-/// Search for similar content
+/// Search for similar content using vector similarity and optional SSSP navigation
 pub async fn search(
     State(state): State<SharedState>,
     Json(request): Json<SearchRequest>,
@@ -785,33 +875,328 @@ pub async fn search(
     let state = state.read().await;
     let limit = request.limit.unwrap_or(10);
     let threshold = request.threshold.unwrap_or(0.5);
+    let namespace = request.namespace.as_deref().unwrap_or("global_knowledge");
 
     debug!(
-        "Searching for '{}' (limit: {}, threshold: {})",
-        request.query, limit, threshold
+        "Searching for '{}' in namespace '{}' (limit: {}, threshold: {})",
+        request.query, namespace, limit, threshold
     );
 
     // Generate embedding for the query
-    let _ = state
+    let query_embedding = state
         .brain
         .embed(&request.query)
         .await
         .map_err(|e| ApiError::EmbeddingError(e.to_string()))?;
 
-    // TODO: Search using HNSW index
-    // let results = node_repo.search_similar(&embedding, namespace, limit).await?;
+    // Search using vector similarity
+    let node_repo = NodeRepository::new(&state.db);
+    let search_results = node_repo
+        .search_similar(&query_embedding.embedding, namespace, limit * 2) // Get more for SSSP filtering
+        .await
+        .map_err(|e| ApiError::DatabaseError(format!("Search failed: {}", e)))?;
 
-    // Filter by threshold
-    // let results: Vec<_> = results.into_iter()
-    //     .filter(|(_, similarity)| *similarity >= threshold)
-    //     .collect();
+    // Check if we have a fractal structure (edges exist)
+    let edge_repo = EdgeRepository::new(&state.db);
+    let has_fractal_structure = check_fractal_structure(&state.db).await;
+
+    let (results, used_sssp) = if has_fractal_structure && search_results.len() > 1 {
+        // Use SSSP to navigate the fractal graph
+        navigate_with_sssp(search_results, threshold, limit, &node_repo, &edge_repo).await
+    } else {
+        // Fall back to simple vector similarity
+        let results: Vec<SearchResult> = search_results
+            .into_iter()
+            .filter(|(_, similarity)| *similarity >= threshold)
+            .take(limit)
+            .map(|(node, similarity)| SearchResult {
+                node_id: node.id.as_ref().map(|t| t.to_string()).unwrap_or_default(),
+                content: node.content,
+                similarity,
+                namespace: node.namespace,
+                node_type: format!("{:?}", node.node_type).to_lowercase(),
+                metadata: SearchResultMetadata {
+                    source: node.metadata.source,
+                    tags: node.metadata.tags,
+                },
+                depth_level: Some(node.depth_level),
+                graph_path: None,
+            })
+            .collect();
+        (results, false)
+    };
+
+    let total = results.len();
+
+    info!(
+        "Search completed: found {} results above threshold {} in {}ms (SSSP: {})",
+        total,
+        threshold,
+        start.elapsed().as_millis(),
+        used_sssp
+    );
 
     Ok(Json(SearchResponse {
         success: true,
-        results: vec![],
-        total: 0,
+        results,
+        total,
         latency_ms: start.elapsed().as_millis() as u64,
+        used_sssp: Some(used_sssp),
     }))
+}
+
+/// Check if the database has a fractal structure (edges exist)
+async fn check_fractal_structure(db: &DatabaseConnection) -> bool {
+    let query = "SELECT count() as cnt FROM edges LIMIT 1";
+    match db.query(query).await {
+        Ok(mut result) => {
+            #[derive(serde::Deserialize)]
+            struct CountResult { cnt: i64 }
+            let counts: Vec<CountResult> = result.take(0).unwrap_or_default();
+            counts.first().map(|c| c.cnt > 0).unwrap_or(false)
+        }
+        Err(_) => false,
+    }
+}
+
+/// Navigate search results using SSSP algorithm for better relevance
+async fn navigate_with_sssp(
+    initial_results: Vec<(FractalNode, f32)>,
+    threshold: f32,
+    limit: usize,
+    node_repo: &NodeRepository<'_>,
+    edge_repo: &EdgeRepository<'_>,
+) -> (Vec<SearchResult>, bool) {
+    use crate::graph::{Sssp, GraphNode};
+    use std::collections::{HashMap, HashSet};
+
+    // Filter by threshold first
+    let filtered: Vec<(FractalNode, f32)> = initial_results
+        .into_iter()
+        .filter(|(_, sim)| *sim >= threshold)
+        .collect();
+
+    if filtered.is_empty() {
+        return (vec![], false);
+    }
+
+    // Build a local graph from the results and their edges
+    let mut graph: HashMap<String, GraphNode> = HashMap::new();
+    let mut node_map: HashMap<String, (FractalNode, f32)> = HashMap::new();
+    let mut explored_nodes: HashSet<String> = HashSet::new();
+
+    // Add initial nodes to graph
+    for (node, similarity) in &filtered {
+        let node_id = node.id.as_ref().map(|t| t.to_string()).unwrap_or_default();
+        if node_id.is_empty() { continue; }
+        
+        let graph_node = GraphNode::new(node_id.clone(), node.namespace.clone());
+        graph.insert(node_id.clone(), graph_node);
+        node_map.insert(node_id.clone(), (node.clone(), *similarity));
+        explored_nodes.insert(node_id);
+    }
+
+    // Explore parent nodes (go up the fractal hierarchy)
+    for (node, _) in &filtered {
+        if let Some(node_id) = &node.id {
+            // Get incoming edges (from parents)
+            if let Ok(incoming) = edge_repo.get_incoming(node_id).await {
+                for edge in incoming {
+                    let parent_id = edge.from.to_string();
+                    if !explored_nodes.contains(&parent_id) {
+                        // Fetch parent node
+                        if let Ok(Some(parent)) = node_repo.get_by_id(&edge.from).await {
+                            let graph_node = GraphNode::new(parent_id.clone(), parent.namespace.clone());
+                            graph.insert(parent_id.clone(), graph_node);
+                            // Calculate similarity for parent based on edge weight
+                            let parent_similarity = edge.similarity * 0.9; // Slight penalty for indirect
+                            node_map.insert(parent_id.clone(), (parent, parent_similarity));
+                            explored_nodes.insert(parent_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Add edges to graph
+    for node_id in explored_nodes.iter() {
+        if let Some(thing) = parse_thing_from_string(node_id) {
+            if let Ok(outgoing) = edge_repo.get_outgoing(&thing).await {
+                for edge in outgoing {
+                    let to_id = edge.to.to_string();
+                    if explored_nodes.contains(&to_id) {
+                        if let Some(gn) = graph.get_mut(node_id) {
+                            gn.add_edge(to_id, edge.similarity);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // If we have enough structure, use SSSP to rank
+    if graph.len() > 1 {
+        let sssp = Sssp::with_defaults();
+        
+        // Find the best starting node (highest similarity leaf)
+        let best_start = filtered.iter()
+            .filter(|(n, _)| n.node_type == crate::models::NodeType::Leaf)
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(n, _)| n.id.as_ref().map(|t| t.to_string()).unwrap_or_default());
+
+        if let Some(start_id) = best_start {
+            if !start_id.is_empty() {
+                let sssp_result = sssp.compute(&graph, &start_id, None);
+                
+                // Combine vector similarity with graph distance for ranking
+                let mut ranked: Vec<(String, f32, Option<Vec<String>>)> = node_map
+                    .iter()
+                    .map(|(id, (_, sim))| {
+                        let graph_score = sssp_result.distances.get(id)
+                            .map(|&d| 1.0 / (1.0 + d)) // Convert distance to score
+                            .unwrap_or(0.0);
+                        
+                        // Combined score: 70% vector similarity + 30% graph proximity
+                        let combined = sim * 0.7 + graph_score * 0.3;
+                        
+                        // Get path if available
+                        let path = sssp_result.reconstruct_path(&start_id, id).map(|p| p.nodes);
+                        
+                        (id.clone(), combined, path)
+                    })
+                    .collect();
+                
+                // Sort by combined score
+                ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                
+                // Convert to results
+                let results: Vec<SearchResult> = ranked
+                    .into_iter()
+                    .take(limit)
+                    .filter_map(|(id, _score, path): (String, f32, Option<Vec<String>>)| {
+                        node_map.get(&id).map(|(node, orig_sim)| SearchResult {
+                            node_id: id.clone(),
+                            content: node.content.clone(),
+                            similarity: *orig_sim, // Report original similarity
+                            namespace: node.namespace.clone(),
+                            node_type: format!("{:?}", node.node_type).to_lowercase(),
+                            metadata: SearchResultMetadata {
+                                source: node.metadata.source.clone(),
+                                tags: node.metadata.tags.clone(),
+                            },
+                            depth_level: Some(node.depth_level),
+                            graph_path: path,
+                        })
+                    })
+                    .collect();
+                
+                return (results, true);
+            }
+        }
+    }
+
+    // Fallback: return simple filtered results
+    let results: Vec<SearchResult> = filtered
+        .into_iter()
+        .take(limit)
+        .map(|(node, similarity)| SearchResult {
+            node_id: node.id.as_ref().map(|t| t.to_string()).unwrap_or_default(),
+            content: node.content,
+            similarity,
+            namespace: node.namespace,
+            node_type: format!("{:?}", node.node_type).to_lowercase(),
+            metadata: SearchResultMetadata {
+                source: node.metadata.source,
+                tags: node.metadata.tags,
+            },
+            depth_level: Some(node.depth_level),
+            graph_path: None,
+        })
+        .collect();
+
+    (results, false)
+}
+
+/// Parse a string ID into a SurrealDB Thing
+fn parse_thing_from_string(id: &str) -> Option<surrealdb::sql::Thing> {
+    if id.contains(':') {
+        let parts: Vec<&str> = id.split(':').collect();
+        if parts.len() == 2 {
+            Some(surrealdb::sql::Thing::from((parts[0].to_string(), parts[1].to_string())))
+        } else {
+            None
+        }
+    } else {
+        Some(surrealdb::sql::Thing::from(("nodes".to_string(), id.to_string())))
+    }
+}
+
+// ============================================================================
+// Build Fractal Handler
+// ============================================================================
+
+/// Build fractal hierarchical structure for a namespace
+pub async fn build_fractal(
+    State(state): State<SharedState>,
+    Json(request): Json<BuildFractalRequest>,
+) -> ApiResult<Json<BuildFractalResponse>> {
+    use crate::services::{FractalBuilder, FractalBuilderConfig};
+    use crate::graph::RaptorConfig;
+
+    let start = Instant::now();
+    let state = state.read().await;
+    let namespace = request.namespace.as_deref().unwrap_or("global_knowledge");
+
+    info!("Building fractal structure for namespace '{}'", namespace);
+
+    // Configure RAPTOR
+    let mut raptor_config = RaptorConfig::default();
+    if let Some(threshold) = request.similarity_threshold {
+        raptor_config = raptor_config.with_similarity_threshold(threshold);
+    }
+    if let Some(max_depth) = request.max_depth {
+        raptor_config = raptor_config.with_max_depth(max_depth);
+    }
+
+    // Configure fractal builder
+    let builder_config = FractalBuilderConfig::new()
+        .with_raptor_config(raptor_config)
+        .with_summaries(request.generate_summaries.unwrap_or(true));
+
+    let builder = FractalBuilder::new(&state.db, builder_config);
+
+    // Build the fractal structure
+    let brain_ref: Option<&crate::models::llm::ModelBrain> = Some(&state.brain);
+
+    let result = builder
+        .build_for_namespace(namespace, brain_ref)
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to build fractal: {}", e)))?;
+
+    let response = BuildFractalResponse {
+        success: true,
+        parent_nodes_created: result.parent_nodes_created,
+        edges_created: result.edges_created,
+        max_depth: result.max_depth,
+        root_node_ids: result.root_node_ids,
+        latency_ms: start.elapsed().as_millis() as u64,
+        message: format!(
+            "Fractal structure built: {} parent nodes, {} edges, max depth {}",
+            result.parent_nodes_created,
+            result.edges_created,
+            result.max_depth
+        ),
+    };
+
+    info!(
+        "Fractal build completed in {}ms: {} parent nodes, {} edges",
+        response.latency_ms,
+        response.parent_nodes_created,
+        response.edges_created
+    );
+
+    Ok(Json(response))
 }
 
 // ============================================================================
@@ -845,617 +1230,6 @@ pub async fn stats(State(state): State<SharedState>) -> Json<StatsResponse> {
     })
 }
 
-// ============================================================================
-// Model Management Handlers
-// ============================================================================
-
-/// Upload a GGUF model file
-pub async fn upload_model(
-    State(state): State<SharedState>,
-    mut multipart: Multipart,
-) -> ApiResult<Json<UploadModelResponse>> {
-    use tokio::fs;
-    use tokio::io::AsyncWriteExt;
-    use crate::models::llm::FractalModel;
-    use crate::services::ModelConversionService;
-    use std::sync::Arc;
-    
-    const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024 * 1024; // 10GB
-    const GGUF_MAGIC: u32 = 0x46554747; // "GGUF" en little-endian
-    
-    let state = state.read().await;
-    
-    // Crear directorio para modelos si no existe
-    let models_dir = "/var/tmp/fractalmind_models";
-    fs::create_dir_all(models_dir).await?;
-    
-    let mut file_name = String::new();
-    let mut file_path = String::new();
-    let mut file_size = 0u64;
-    
-    // Procesar multipart upload
-    while let Some(field) = multipart.next_field().await? {
-        let name = field.name().unwrap_or("").to_string();
-        
-        if name == "file" {
-            file_name = field.file_name().unwrap_or("model.gguf").to_string();
-            
-            // Validar extensión
-            if !file_name.to_lowercase().ends_with(".gguf") {
-                return Err(ApiError::ValidationError(
-                    "Only .gguf files are supported".to_string()
-                ));
-            }
-            
-            file_path = format!("{}/{}", models_dir, file_name);
-            
-            // Escribir archivo
-            let data = field.bytes().await?;
-            file_size = data.len() as u64;
-            
-            // Validar tamaño
-            if file_size > MAX_FILE_SIZE {
-                return Err(ApiError::ValidationError(
-                    format!("File too large: {} bytes (max: {} bytes)", file_size, MAX_FILE_SIZE)
-                ));
-            }
-            
-            if file_size < 8 {
-                return Err(ApiError::ValidationError(
-                    "File too small to be a valid GGUF model".to_string()
-                ));
-            }
-            
-            // Validar magic number GGUF
-            if data.len() >= 4 {
-                let magic = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
-                if magic != GGUF_MAGIC {
-                    return Err(ApiError::ValidationError(
-                        format!("Invalid GGUF file: magic number mismatch (expected 0x{:08x}, got 0x{:08x})", 
-                            GGUF_MAGIC, magic)
-                    ));
-                }
-            }
-            
-            let mut file = fs::File::create(&file_path).await?;
-            file.write_all(&data).await?;
-        }
-    }
-    
-    if file_path.is_empty() {
-        return Err(ApiError::ValidationError("No file uploaded".to_string()));
-    }
-    
-    // Crear modelo en DB
-    let model = FractalModel::new(file_name.clone(), file_path, file_size);
-    let model_id = model.id.clone();
-    
-    let conversion_service = ModelConversionService::new(Arc::new(state.db.clone()));
-    conversion_service.create_model(&model).await?;
-    
-    Ok(Json(UploadModelResponse {
-        success: true,
-        model_id,
-        message: format!("Model {} uploaded successfully", file_name),
-    }))
-}
-
-/// Convert a model to fractal structure
-pub async fn convert_model(
-    State(state): State<SharedState>,
-    Json(request): Json<ConvertModelRequest>,
-) -> ApiResult<Json<ConvertModelResponse>> {
-    use crate::services::ModelConversionService;
-    use std::sync::Arc;
-    
-    let state = state.read().await;
-    let conversion_service = ModelConversionService::new(Arc::new(state.db.clone()));
-    
-    // Obtener modelo
-    let mut model = conversion_service
-        .get_model(&request.model_id)
-        .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Model not found: {}", request.model_id)))?;
-    
-    // Iniciar conversión en background
-    let db = Arc::new(state.db.clone());
-    let model_id = model.id.clone();
-    
-    tokio::spawn(async move {
-        let service = ModelConversionService::new(db);
-        if let Err(e) = service.convert_model(&mut model).await {
-            error!("Failed to convert model {}: {}", model_id, e);
-        }
-    });
-    
-    Ok(Json(ConvertModelResponse {
-        success: true,
-        message: format!("Model conversion started for {}", request.model_id),
-    }))
-}
-
-/// List all models
-pub async fn list_models(
-    State(state): State<SharedState>,
-) -> ApiResult<Json<ListModelsResponse>> {
-    use crate::services::ModelConversionService;
-    use std::sync::Arc;
-    
-    let state = state.read().await;
-    let conversion_service = ModelConversionService::new(Arc::new(state.db.clone()));
-    
-    let models = conversion_service.list_models().await?;
-    
-    let model_infos: Vec<ModelInfo> = models
-        .into_iter()
-        .map(|m| ModelInfo {
-            id: m.id,
-            name: m.name,
-            status: format!("{:?}", m.status).to_lowercase(),
-            architecture: serde_json::to_value(&m.architecture).ok(),
-            file_size: m.file_size,
-            created_at: m.created_at.to_rfc3339(),
-        })
-        .collect();
-    
-    Ok(Json(ListModelsResponse {
-        models: model_infos,
-    }))
-}
-
-/// Get model details
-pub async fn get_model(
-    State(state): State<SharedState>,
-    axum::extract::Path(model_id): axum::extract::Path<String>,
-) -> ApiResult<Json<GetModelResponse>> {
-    use crate::services::ModelConversionService;
-    use std::sync::Arc;
-    
-    let state = state.read().await;
-    let conversion_service = ModelConversionService::new(Arc::new(state.db.clone()));
-    
-    let model = conversion_service
-        .get_model(&model_id)
-        .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Model not found: {}", model_id)))?;
-    
-    Ok(Json(GetModelResponse {
-        model: ModelInfo {
-            id: model.id,
-            name: model.name,
-            status: format!("{:?}", model.status).to_lowercase(),
-            architecture: serde_json::to_value(&model.architecture).ok(),
-            file_size: model.file_size,
-            created_at: model.created_at.to_rfc3339(),
-        },
-    }))
-}
-
-/// Delete a model
-pub async fn delete_model(
-    State(state): State<SharedState>,
-    axum::extract::Path(model_id): axum::extract::Path<String>,
-) -> ApiResult<Json<DeleteModelResponse>> {
-    use crate::services::ModelConversionService;
-    use std::sync::Arc;
-    
-    let state = state.read().await;
-    let conversion_service = ModelConversionService::new(Arc::new(state.db.clone()));
-    
-    conversion_service.delete_model(&model_id).await?;
-    
-    Ok(Json(DeleteModelResponse {
-        success: true,
-        message: format!("Model {} deleted successfully", model_id),
-    }))
-}
-
-/// Update model strategy (fractal vs ollama)
-pub async fn update_strategy(
-    State(_state): State<SharedState>,
-    Json(request): Json<UpdateStrategyRequest>,
-) -> ApiResult<Json<UpdateStrategyResponse>> {
-    // TODO: Implementar storage de configuración de estrategia
-    // Por ahora, solo validamos y retornamos
-    
-    match request.strategy.as_str() {
-        "fractal" => {
-            if request.model_id.is_none() {
-                return Err(ApiError::ValidationError(
-                    "model_id required for fractal strategy".to_string(),
-                ));
-            }
-        }
-        "ollama" => {}
-        _ => {
-            return Err(ApiError::ValidationError(format!(
-                "Invalid strategy: {}. Must be 'fractal' or 'ollama'",
-                request.strategy
-            )));
-        }
-    }
-    
-    Ok(Json(UpdateStrategyResponse {
-        success: true,
-        current_strategy: request.strategy.clone(),
-        message: format!("Strategy updated to {}", request.strategy),
-    }))
-}
-
-/// List available Ollama models
-pub async fn list_ollama_models() -> ApiResult<Json<ListOllamaModelsResponse>> {
-    use reqwest::Client;
-    use serde::Deserialize;
-    
-    #[derive(Deserialize)]
-    struct OllamaApiModel {
-        name: String,
-        model: String,
-        modified_at: String,
-        size: u64,
-        digest: String,
-        details: Option<OllamaApiDetails>,
-    }
-    
-    #[derive(Deserialize)]
-    struct OllamaApiDetails {
-        parent_model: Option<String>,
-        format: Option<String>,
-        family: Option<String>,
-        families: Option<Vec<String>>,
-        parameter_size: Option<String>,
-        quantization_level: Option<String>,
-    }
-    
-    #[derive(Deserialize)]
-    struct OllamaTagsResponse {
-        models: Vec<OllamaApiModel>,
-    }
-    
-    let ollama_url = std::env::var("OLLAMA_URL")
-        .unwrap_or_else(|_| "http://localhost:11434".to_string());
-    
-    let client = Client::new();
-    let url = format!("{}/api/tags", ollama_url);
-    
-    debug!("Fetching Ollama models from: {}", url);
-    
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| ApiError::InternalError(format!("Failed to connect to Ollama: {}", e)))?;
-    
-    if !response.status().is_success() {
-        return Err(ApiError::InternalError(format!(
-            "Ollama API returned status: {}",
-            response.status()
-        )));
-    }
-    
-    let ollama_response: OllamaTagsResponse = response
-        .json()
-        .await
-        .map_err(|e| ApiError::InternalError(format!("Failed to parse Ollama response: {}", e)))?;
-    
-    let models = ollama_response
-        .models
-        .into_iter()
-        .map(|m| OllamaModelInfo {
-            name: m.name,
-            model: m.model,
-            modified_at: m.modified_at,
-            size: m.size,
-            digest: m.digest,
-            details: m.details.map(|d| OllamaModelDetails {
-                parent_model: d.parent_model,
-                format: d.format,
-                family: d.family,
-                families: d.families,
-                parameter_size: d.parameter_size,
-                quantization_level: d.quantization_level,
-            }),
-        })
-        .collect();
-    
-    Ok(Json(ListOllamaModelsResponse { models }))
-}
-
-// ============================================================================
-// Chunked Upload Handlers
-// ============================================================================
-
-use std::collections::HashMap;
-use tokio::sync::Mutex;
-
-/// Global in-memory store for upload sessions.
-/// In production, this should be in SurrealDB.
-lazy_static::lazy_static! {
-    static ref UPLOAD_SESSIONS: Arc<Mutex<HashMap<String, crate::models::UploadSession>>> = 
-        Arc::new(Mutex::new(HashMap::new()));
-}
-
-/// Initialize a chunked upload session
-pub async fn init_upload(
-    Json(request): Json<InitUploadRequest>,
-) -> ApiResult<Json<InitUploadResponse>> {
-    use tokio::fs;
-    use crate::models::UploadSession;
-
-    // Validate request
-    if request.filename.is_empty() {
-        return Err(ApiError::ValidationError("Filename cannot be empty".to_string()));
-    }
-
-    if !request.filename.to_lowercase().ends_with(".gguf") {
-        return Err(ApiError::ValidationError("Only .gguf files are supported".to_string()));
-    }
-
-    const MAX_MODEL_SIZE: u64 = 500 * 1024 * 1024 * 1024; // 500GB
-    if request.total_size > MAX_MODEL_SIZE {
-        return Err(ApiError::ValidationError(
-            format!("File too large: {} bytes (max: {} GB)", request.total_size, MAX_MODEL_SIZE / (1024 * 1024 * 1024))
-        ));
-    }
-
-    // Create upload directory
-    fs::create_dir_all("/var/tmp/fractalmind_uploads").await?;
-
-    // Create upload session
-    let session = UploadSession::new(request.filename, request.total_size, request.chunk_size);
-    let upload_id = session.upload_id.clone();
-    let total_chunks = session.total_chunks;
-
-    // Store session
-    let mut sessions = UPLOAD_SESSIONS.lock().await;
-    sessions.insert(upload_id.clone(), session);
-
-    info!("Initialized upload session: {} ({} chunks)", upload_id, total_chunks);
-
-    Ok(Json(InitUploadResponse {
-        upload_id,
-        chunk_size: request.chunk_size,
-        total_chunks,
-    }))
-}
-
-/// Upload a single chunk
-pub async fn upload_chunk(
-    axum::extract::Path(upload_id): axum::extract::Path<String>,
-    headers: axum::http::HeaderMap,
-    body: axum::body::Bytes,
-) -> ApiResult<Json<UploadChunkResponse>> {
-    use tokio::fs::OpenOptions;
-    use tokio::io::{AsyncWriteExt, AsyncSeekExt};
-    use std::io::SeekFrom;
-
-    // Extract headers
-    let chunk_index: u64 = headers
-        .get("x-chunk-index")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse().ok())
-        .ok_or_else(|| ApiError::ValidationError("Missing or invalid x-chunk-index header".to_string()))?;
-
-    let total_chunks: u64 = headers
-        .get("x-total-chunks")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse().ok())
-        .ok_or_else(|| ApiError::ValidationError("Missing or invalid x-total-chunks header".to_string()))?;
-
-    // Get session
-    let mut sessions = UPLOAD_SESSIONS.lock().await;
-    let session = sessions.get_mut(&upload_id)
-        .ok_or_else(|| ApiError::NotFound(format!("Upload session not found: {}", upload_id)))?;
-
-    // Validate chunk index
-    if chunk_index >= total_chunks {
-        return Err(ApiError::ValidationError(
-            format!("Invalid chunk index: {} (total: {})", chunk_index, total_chunks)
-        ));
-    }
-
-    // Check if chunk already received
-    if session.chunks_received.contains(&chunk_index) {
-        debug!("Chunk {} already received for {}, skipping", chunk_index, upload_id);
-        return Ok(Json(UploadChunkResponse {
-            success: true,
-            chunk_index,
-            chunks_received: session.chunks_received.len() as u64,
-            total_chunks: session.total_chunks,
-        }));
-    }
-
-    // Calculate timing for speed
-    let start = Instant::now();
-
-    // Write chunk to file
-    let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(&session.temp_path)
-        .await?;
-
-    // Seek to chunk position
-    let offset = chunk_index * session.chunk_size;
-    file.seek(SeekFrom::Start(offset)).await?;
-
-    // Write chunk data
-    file.write_all(&body).await?;
-    file.sync_all().await?;
-
-    // Update session
-    let elapsed = start.elapsed().as_secs_f32();
-    session.calculate_speed(body.len() as u64, elapsed);
-    session.add_chunk(chunk_index);
-
-    let chunks_received = session.chunks_received.len() as u64;
-    let total_chunks = session.total_chunks;
-
-    debug!(
-        "Received chunk {}/{} for {} ({}%)",
-        chunk_index + 1,
-        total_chunks,
-        upload_id,
-        session.upload_progress
-    );
-
-    Ok(Json(UploadChunkResponse {
-        success: true,
-        chunk_index,
-        chunks_received,
-        total_chunks,
-    }))
-}
-
-/// Get upload and conversion progress
-pub async fn get_progress(
-    axum::extract::Path(upload_id): axum::extract::Path<String>,
-    State(state): State<SharedState>,
-) -> ApiResult<Json<ProgressResponse>> {
-    let sessions = UPLOAD_SESSIONS.lock().await;
-    
-    if let Some(session) = sessions.get(&upload_id) {
-        return Ok(Json(ProgressResponse {
-            upload_progress: session.upload_progress,
-            conversion_progress: session.conversion_progress,
-            status: session.status.as_str().to_string(),
-            upload_speed_mbps: session.upload_speed_mbps,
-            chunks_received: Some(session.chunks_received.len() as u64),
-            total_chunks: Some(session.total_chunks),
-            current_phase: session.current_phase.clone(),
-        }));
-    }
-
-    // If not in upload sessions, check if it's a model_id
-    drop(sessions);
-    
-    let state_guard = state.read().await;
-    use crate::services::ModelConversionService;
-    let service = ModelConversionService::new(Arc::new(state_guard.db.clone()));
-    
-    if let Ok(Some(model)) = service.get_model(&upload_id).await {
-        return Ok(Json(ProgressResponse {
-            upload_progress: 100.0,
-            conversion_progress: model.conversion_progress.unwrap_or(0.0),
-            status: format!("{:?}", model.status).to_lowercase(),
-            upload_speed_mbps: None,
-            chunks_received: None,
-            total_chunks: None,
-            current_phase: model.conversion_phase.clone(),
-        }));
-    }
-
-    Err(ApiError::NotFound(format!("Upload or model not found: {}", upload_id)))
-}
-
-/// Finalize upload and trigger conversion
-pub async fn finalize_upload(
-    axum::extract::Path(upload_id): axum::extract::Path<String>,
-    State(state): State<SharedState>,
-) -> ApiResult<Json<FinalizeUploadResponse>> {
-    use tokio::fs;
-    use crate::models::llm::FractalModel;
-    use crate::services::ModelConversionService;
-
-    const GGUF_MAGIC: u32 = 0x46554747;
-
-    // Get and remove session from active uploads
-    let mut sessions = UPLOAD_SESSIONS.lock().await;
-    let mut session = sessions.remove(&upload_id)
-        .ok_or_else(|| ApiError::NotFound(format!("Upload session not found: {}", upload_id)))?;
-
-    // Verify all chunks received
-    if !session.is_complete() {
-        let missing = session.missing_chunks();
-        sessions.insert(upload_id.clone(), session); // Put it back
-        return Err(ApiError::ValidationError(
-            format!("Upload incomplete. Missing chunks: {:?}", &missing[..missing.len().min(10)])
-        ));
-    }
-
-    session.status = crate::models::UploadStatus::Finalizing;
-    drop(sessions);
-
-    info!("Finalizing upload: {}", upload_id);
-
-    // Validate GGUF magic number
-    let mut file = fs::File::open(&session.temp_path).await?;
-    let mut magic_bytes = [0u8; 4];
-    use tokio::io::AsyncReadExt;
-    file.read_exact(&mut magic_bytes).await?;
-    let magic = u32::from_le_bytes(magic_bytes);
-
-    if magic != GGUF_MAGIC {
-        fs::remove_file(&session.temp_path).await?;
-        return Err(ApiError::ValidationError(
-            format!("Invalid GGUF file: magic number mismatch (expected 0x{:08x}, got 0x{:08x})", GGUF_MAGIC, magic)
-        ));
-    }
-
-    // Move to final location
-    let models_dir = "/var/tmp/fractalmind_models";
-    fs::create_dir_all(models_dir).await?;
-    let final_path = format!("{}/{}", models_dir, session.filename);
-    fs::rename(&session.temp_path, &final_path).await?;
-
-    info!("Moved uploaded file to: {}", final_path);
-
-    // Create model in DB
-    let state_guard = state.read().await;
-    let model = FractalModel::new(session.filename.clone(), final_path, session.total_size);
-    let model_id = model.id.clone();
-
-    let conversion_service = ModelConversionService::new(Arc::new(state_guard.db.clone()));
-    conversion_service.create_model(&model).await?;
-
-    // Start automatic conversion in background
-    let db = Arc::new(state_guard.db.clone());
-    let model_id_clone = model_id.clone();
-    
-    tokio::spawn(async move {
-        let service = ModelConversionService::new(db);
-        if let Ok(Some(mut model)) = service.get_model(&model_id_clone).await {
-            info!("Starting automatic conversion for model: {}", model_id_clone);
-            if let Err(e) = service.convert_model(&mut model).await {
-                error!("Failed to convert model {}: {}", model_id_clone, e);
-            }
-        }
-    });
-
-    Ok(Json(FinalizeUploadResponse {
-        success: true,
-        model_id,
-        message: format!("Upload finalized. Model conversion started."),
-    }))
-}
-
-/// Cancel an upload
-pub async fn cancel_upload(
-    axum::extract::Path(upload_id): axum::extract::Path<String>,
-) -> ApiResult<Json<CancelUploadResponse>> {
-    use tokio::fs;
-
-    let mut sessions = UPLOAD_SESSIONS.lock().await;
-    
-    if let Some(mut session) = sessions.remove(&upload_id) {
-        session.mark_cancelled();
-        
-        // Remove temporary file
-        if let Err(e) = fs::remove_file(&session.temp_path).await {
-            warn!("Failed to remove temp file {}: {}", session.temp_path, e);
-        }
-
-        info!("Cancelled upload: {}", upload_id);
-
-        Ok(Json(CancelUploadResponse {
-            success: true,
-            message: format!("Upload {} cancelled", upload_id),
-        }))
-    } else {
-        Err(ApiError::NotFound(format!("Upload session not found: {}", upload_id)))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1477,4 +1251,543 @@ mod tests {
         // parsing plain as JSON should fail, so we treat it as single tag
         assert!(serde_json::from_str::<Vec<String>>(plain).is_err());
     }
+}
+
+// ============================================================================
+// Model Upload Handlers
+// ============================================================================
+
+use axum::extract::Path;
+use axum::body::Bytes;
+
+/// Initialize a chunked upload session
+pub async fn init_model_upload(
+    State(state): State<SharedState>,
+    Json(request): Json<InitUploadRequest>,
+) -> ApiResult<Json<InitUploadResponse>> {
+    // Validate request
+    if !request.filename.to_lowercase().ends_with(".gguf") {
+        return Err(ApiError::ValidationError(
+            "File must be a .gguf model file".to_string(),
+        ));
+    }
+    
+    if request.total_size == 0 {
+        return Err(ApiError::ValidationError(
+            "File size cannot be 0".to_string(),
+        ));
+    }
+    
+    // Max 500GB
+    const MAX_SIZE: u64 = 500 * 1024 * 1024 * 1024;
+    if request.total_size > MAX_SIZE {
+        return Err(ApiError::ValidationError(format!(
+            "File size {} exceeds maximum allowed {} bytes (500GB)",
+            request.total_size, MAX_SIZE
+        )));
+    }
+    
+    // Validate chunk size (10MB - 500MB)
+    const MIN_CHUNK: u64 = 10 * 1024 * 1024;
+    const MAX_CHUNK: u64 = 500 * 1024 * 1024;
+    let chunk_size = request.chunk_size.clamp(MIN_CHUNK, MAX_CHUNK);
+    
+    let state_read = state.read().await;
+    let manager = &state_read.upload_manager;
+    
+    let session = manager
+        .init_upload(request.filename, request.total_size, Some(chunk_size))
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to init upload: {}", e)))?;
+    
+    info!(
+        "Initialized model upload: id={}, chunks={}",
+        session.upload_id, session.total_chunks
+    );
+    
+    Ok(Json(InitUploadResponse {
+        upload_id: session.upload_id,
+        chunk_size: session.chunk_size,
+        total_chunks: session.total_chunks,
+    }))
+}
+
+/// Query parameters for chunk upload
+#[derive(Debug, Deserialize)]
+pub struct ChunkParams {
+    pub chunk_index: u64,
+    pub checksum: Option<String>,
+}
+
+/// Upload a chunk of the model file
+pub async fn upload_model_chunk(
+    State(state): State<SharedState>,
+    Path(upload_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<ChunkParams>,
+    body: Bytes,
+) -> ApiResult<Json<UploadChunkResponse>> {
+    let state_read = state.read().await;
+    let manager = &state_read.upload_manager;
+    
+    let result = manager
+        .upload_chunk(
+            &upload_id,
+            params.chunk_index,
+            body,
+            params.checksum.as_deref(),
+        )
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Chunk upload failed: {}", e)))?;
+    
+    debug!(
+        "Received chunk {} for upload {} ({}/{})",
+        params.chunk_index, upload_id, result.chunks_received, result.total_chunks
+    );
+    
+    Ok(Json(UploadChunkResponse {
+        success: result.success,
+        chunk_index: result.chunk_index,
+        chunks_received: result.chunks_received,
+        total_chunks: result.total_chunks,
+    }))
+}
+
+/// Finalize an upload after all chunks received
+pub async fn finalize_model_upload(
+    State(state): State<SharedState>,
+    Path(upload_id): Path<String>,
+) -> ApiResult<Json<FinalizeUploadResponse>> {
+    let state_read = state.read().await;
+    let manager = &state_read.upload_manager;
+    
+    // Get session info before finalizing
+    let session = manager
+        .get_status(&upload_id)
+        .await
+        .ok_or_else(|| ApiError::NotFound(format!("Upload session not found: {}", upload_id)))?;
+    
+    let filename = session.filename.clone();
+    let total_size = session.total_size;
+    
+    // Finalize the upload (move file to final location)
+    let result = manager
+        .finalize(&upload_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Finalize failed: {}", e)))?;
+    
+    // Create the FractalModel record in the database
+    let model = crate::models::llm::fractal_model::FractalModel::new(
+        filename.clone(),
+        result.file_path.clone(),
+        total_size,
+    );
+    
+    let repo = crate::db::queries::FractalModelRepository::new(&state_read.db);
+    let model_id = repo
+        .create(&model)
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to create model record: {}", e)))?;
+    
+    info!(
+        "Finalized model upload: upload_id={}, model_id={}, file={}, size={}",
+        upload_id, model_id, result.file_path, total_size
+    );
+    
+    // Auto-start conversion in background
+    let db_clone = state_read.db.clone();
+    let model_id_clone = model_id.clone();
+    let file_path = result.file_path.clone();
+    let upload_manager_clone = state_read.upload_manager.clone();
+    let upload_id_clone = upload_id.clone();
+    
+    tokio::spawn(async move {
+        info!("Auto-starting conversion for model: {}", model_id_clone);
+        
+        // Update status to converting
+        let repo = crate::db::queries::FractalModelRepository::new(&db_clone);
+        if let Err(e) = repo.update_status(&model_id_clone, crate::models::llm::fractal_model::FractalModelStatus::Converting).await {
+            error!("Failed to update model status: {}", e);
+            return;
+        }
+        
+        // Run conversion
+        if let Err(e) = run_model_conversion(&db_clone, &model_id_clone, &file_path).await {
+            error!("Model conversion failed for {}: {}", model_id_clone, e);
+            let _ = repo.update_status(&model_id_clone, crate::models::llm::fractal_model::FractalModelStatus::Failed).await;
+            let _ = upload_manager_clone.mark_failed(&upload_id_clone, &e.to_string()).await;
+            return;
+        }
+        
+        // Mark upload session as ready so frontend stops polling
+        if let Err(e) = upload_manager_clone.mark_ready(&upload_id_clone).await {
+            error!("Failed to mark upload as ready: {}", e);
+        }
+    });
+    
+    Ok(Json(FinalizeUploadResponse {
+        success: result.success,
+        model_id,
+        message: "Upload finalized. Conversion started automatically.".to_string(),
+    }))
+}
+
+/// Get current upload status
+pub async fn get_upload_status(
+    State(state): State<SharedState>,
+    Path(upload_id): Path<String>,
+) -> ApiResult<Json<ProgressResponse>> {
+    let state_read = state.read().await;
+    let manager = &state_read.upload_manager;
+    
+    let session = manager
+        .get_status(&upload_id)
+        .await
+        .ok_or_else(|| ApiError::NotFound(format!("Upload session not found: {}", upload_id)))?;
+    
+    Ok(Json(ProgressResponse {
+        upload_progress: session.upload_progress,
+        conversion_progress: session.conversion_progress,
+        status: session.status.as_str().to_string(),
+        upload_speed_mbps: session.upload_speed_mbps,
+        chunks_received: Some(session.chunks_received.len() as u64),
+        total_chunks: Some(session.total_chunks),
+        current_phase: session.current_phase,
+    }))
+}
+
+/// Cancel an ongoing upload
+pub async fn cancel_model_upload(
+    State(state): State<SharedState>,
+    Path(upload_id): Path<String>,
+) -> ApiResult<Json<CancelUploadResponse>> {
+    let state_read = state.read().await;
+    let manager = &state_read.upload_manager;
+    
+    manager
+        .cancel(&upload_id)
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Cancel failed: {}", e)))?;
+    
+    info!("Cancelled model upload: {}", upload_id);
+    
+    Ok(Json(CancelUploadResponse {
+        success: true,
+        message: "Upload cancelled and temporary files cleaned up".to_string(),
+    }))
+}
+
+/// SSE stream for upload/conversion progress
+pub async fn upload_progress_stream(
+    State(state): State<SharedState>,
+    Path(upload_id): Path<String>,
+) -> impl axum::response::IntoResponse {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+    use std::convert::Infallible;
+    
+    // Clone the Arc to move into the async stream
+    let manager = state.read().await.upload_manager.clone();
+    
+    let stream = async_stream::stream! {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
+        
+        loop {
+            interval.tick().await;
+            
+            let session = manager.get_status(&upload_id).await;
+            
+            match session {
+                Some(s) => {
+                    let progress = ProgressResponse {
+                        upload_progress: s.upload_progress,
+                        conversion_progress: s.conversion_progress,
+                        status: s.status.as_str().to_string(),
+                        upload_speed_mbps: s.upload_speed_mbps,
+                        chunks_received: Some(s.chunks_received.len() as u64),
+                        total_chunks: Some(s.total_chunks),
+                        current_phase: s.current_phase.clone(),
+                    };
+                    
+                    let json = serde_json::to_string(&progress).unwrap_or_default();
+                    yield Ok::<_, Infallible>(Event::default().data(json));
+                    
+                    // Stop when ready or failed
+                    if s.status == crate::models::upload_session::UploadStatus::Ready 
+                        || s.status == crate::models::upload_session::UploadStatus::Failed 
+                    {
+                        break;
+                    }
+                }
+                None => {
+                    let error = serde_json::json!({
+                        "error": "Session not found",
+                        "upload_id": upload_id
+                    });
+                    yield Ok::<_, Infallible>(Event::default().event("error").data(error.to_string()));
+                    break;
+                }
+            }
+        }
+    };
+    
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+// ============================================================================
+// Model Management Handlers
+// ============================================================================
+
+use crate::db::queries::FractalModelRepository;
+use crate::models::llm::fractal_model::FractalModelStatus;
+
+/// List available Ollama models
+pub async fn list_ollama_models() -> ApiResult<Json<ListOllamaModelsResponse>> {
+    let ollama_base_url = std::env::var("OLLAMA_BASE_URL")
+        .unwrap_or_else(|_| "http://localhost:11434".to_string());
+    
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/tags", ollama_base_url);
+    
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to connect to Ollama: {}", e)))?;
+    
+    if !response.status().is_success() {
+        return Err(ApiError::InternalError(format!(
+            "Ollama returned error: {}",
+            response.status()
+        )));
+    }
+    
+    #[derive(Deserialize)]
+    struct OllamaTagsResponse {
+        models: Vec<OllamaTagModel>,
+    }
+    
+    #[derive(Deserialize)]
+    struct OllamaTagModel {
+        name: String,
+        model: Option<String>,
+        modified_at: String,
+        size: u64,
+        digest: String,
+        details: Option<OllamaTagDetails>,
+    }
+    
+    #[derive(Deserialize)]
+    struct OllamaTagDetails {
+        parent_model: Option<String>,
+        format: Option<String>,
+        family: Option<String>,
+        families: Option<Vec<String>>,
+        parameter_size: Option<String>,
+        quantization_level: Option<String>,
+    }
+    
+    let ollama_response: OllamaTagsResponse = response
+        .json()
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to parse Ollama response: {}", e)))?;
+    
+    let models: Vec<OllamaModelInfo> = ollama_response
+        .models
+        .into_iter()
+        .map(|m| OllamaModelInfo {
+            name: m.name.clone(),
+            model: m.model.unwrap_or_else(|| m.name.clone()),
+            modified_at: m.modified_at,
+            size: m.size,
+            digest: m.digest,
+            details: m.details.map(|d| OllamaModelDetails {
+                parent_model: d.parent_model,
+                format: d.format,
+                family: d.family,
+                families: d.families,
+                parameter_size: d.parameter_size,
+                quantization_level: d.quantization_level,
+            }),
+        })
+        .collect();
+    
+    Ok(Json(ListOllamaModelsResponse { models }))
+}
+
+/// List all fractal models
+pub async fn list_models(
+    State(state): State<SharedState>,
+) -> ApiResult<Json<ListModelsResponse>> {
+    let state_read = state.read().await;
+    let repo = FractalModelRepository::new(&state_read.db);
+    
+    let models = repo
+        .list_all()
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to list models: {}", e)))?;
+    
+    let model_infos: Vec<ModelInfo> = models
+        .into_iter()
+        .map(|m| ModelInfo {
+            id: m.id,
+            name: m.name,
+            status: match m.status {
+                FractalModelStatus::Uploading => "uploading".to_string(),
+                FractalModelStatus::Uploaded => "uploaded".to_string(),
+                FractalModelStatus::Converting => "converting".to_string(),
+                FractalModelStatus::Ready => "ready".to_string(),
+                FractalModelStatus::Failed => "failed".to_string(),
+            },
+            architecture: Some(serde_json::to_value(&m.architecture).unwrap_or_default()),
+            file_size: m.file_size,
+            created_at: m.created_at.to_rfc3339(),
+        })
+        .collect();
+    
+    Ok(Json(ListModelsResponse {
+        models: model_infos,
+    }))
+}
+
+/// Get details of a specific model
+pub async fn get_model(
+    State(state): State<SharedState>,
+    Path(model_id): Path<String>,
+) -> ApiResult<Json<GetModelResponse>> {
+    let state_read = state.read().await;
+    let repo = FractalModelRepository::new(&state_read.db);
+    
+    let model = repo
+        .get_by_id(&model_id)
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to get model: {}", e)))?
+        .ok_or_else(|| ApiError::NotFound(format!("Model not found: {}", model_id)))?;
+    
+    Ok(Json(GetModelResponse {
+        model: ModelInfo {
+            id: model.id,
+            name: model.name,
+            status: match model.status {
+                FractalModelStatus::Uploading => "uploading".to_string(),
+                FractalModelStatus::Uploaded => "uploaded".to_string(),
+                FractalModelStatus::Converting => "converting".to_string(),
+                FractalModelStatus::Ready => "ready".to_string(),
+                FractalModelStatus::Failed => "failed".to_string(),
+            },
+            architecture: Some(serde_json::to_value(&model.architecture).unwrap_or_default()),
+            file_size: model.file_size,
+            created_at: model.created_at.to_rfc3339(),
+        },
+    }))
+}
+
+/// Delete a model
+pub async fn delete_model(
+    State(state): State<SharedState>,
+    Path(model_id): Path<String>,
+) -> ApiResult<Json<DeleteModelResponse>> {
+    let state_read = state.read().await;
+    let repo = FractalModelRepository::new(&state_read.db);
+    
+    // Get the model first to get the file path
+    let model = repo
+        .get_by_id(&model_id)
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to get model: {}", e)))?
+        .ok_or_else(|| ApiError::NotFound(format!("Model not found: {}", model_id)))?;
+    
+    // Delete from database (also deletes associated nodes)
+    repo.delete(&model_id)
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to delete model: {}", e)))?;
+    
+    // Try to delete the file (don't fail if file doesn't exist)
+    if let Err(e) = tokio::fs::remove_file(&model.file_path).await {
+        warn!("Failed to delete model file {}: {}", model.file_path, e);
+    }
+    
+    info!("Deleted model: {} ({})", model_id, model.name);
+    
+    Ok(Json(DeleteModelResponse {
+        success: true,
+        message: format!("Model {} deleted successfully", model_id),
+    }))
+}
+
+/// Start model conversion (GGUF -> Fractal)
+pub async fn convert_model(
+    State(state): State<SharedState>,
+    Path(model_id): Path<String>,
+) -> ApiResult<Json<ConvertModelResponse>> {
+    let state_read = state.read().await;
+    let repo = FractalModelRepository::new(&state_read.db);
+    
+    // Get the model
+    let model = repo
+        .get_by_id(&model_id)
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to get model: {}", e)))?
+        .ok_or_else(|| ApiError::NotFound(format!("Model not found: {}", model_id)))?;
+    
+    // Check if already converting or ready
+    match model.status {
+        FractalModelStatus::Converting => {
+            return Err(ApiError::BadRequest("Model is already being converted".to_string()));
+        }
+        FractalModelStatus::Ready => {
+            return Err(ApiError::BadRequest("Model is already converted and ready".to_string()));
+        }
+        _ => {}
+    }
+    
+    // Update status to converting
+    repo.update_status(&model_id, FractalModelStatus::Converting)
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to update model status: {}", e)))?;
+    
+    // Spawn async conversion task
+    let db_clone = state_read.db.clone();
+    let model_id_clone = model_id.clone();
+    let file_path = model.file_path.clone();
+    
+    tokio::spawn(async move {
+        if let Err(e) = run_model_conversion(&db_clone, &model_id_clone, &file_path).await {
+            error!("Model conversion failed for {}: {}", model_id_clone, e);
+            let repo = FractalModelRepository::new(&db_clone);
+            let _ = repo.update_status(&model_id_clone, FractalModelStatus::Failed).await;
+        }
+    });
+    
+    info!("Started conversion for model: {} ({})", model_id, model.name);
+    
+    Ok(Json(ConvertModelResponse {
+        success: true,
+        message: format!("Conversion started for model {}. Monitor progress via /v1/models/{}/status", model_id, model_id),
+    }))
+}
+
+// ============================================================================
+// Model Conversion Logic
+// ============================================================================
+
+use crate::services::ModelConversionService;
+
+/// Run the model conversion process using the real conversion service
+async fn run_model_conversion(
+    db: &DatabaseConnection,
+    model_id: &str,
+    _file_path: &str, // No longer needed, service gets it from model
+) -> Result<(), anyhow::Error> {
+    let repo = FractalModelRepository::new(db);
+    
+    // Get the model from database
+    let mut model = repo
+        .get_by_id(model_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
+    
+    // Create conversion service and run real conversion
+    let conversion_service = ModelConversionService::new(std::sync::Arc::new(db.clone()));
+    conversion_service.convert_model(&mut model).await?;
+    
+    Ok(())
 }

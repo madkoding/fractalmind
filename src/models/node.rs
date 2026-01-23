@@ -7,6 +7,78 @@ use uuid::Uuid;
 
 use super::embedding::EmbeddingVector;
 
+/// Serialization module for UUID as hyphenated string
+mod uuid_string {
+    use serde::{self, Deserialize, Deserializer, Serializer};
+    use uuid::Uuid;
+
+    pub fn serialize<S>(uuid: &Uuid, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&uuid.to_string())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Uuid, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Uuid::parse_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Serialization module for chrono DateTime as ISO string
+mod datetime_string {
+    use chrono::{DateTime, Utc};
+    use serde::{self, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(date: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&date.to_rfc3339())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        DateTime::parse_from_rfc3339(&s)
+            .map(|dt| dt.with_timezone(&Utc))
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+mod datetime_string_option {
+    use chrono::{DateTime, Utc};
+    use serde::{self, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(date: &Option<DateTime<Utc>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match date {
+            Some(d) => serializer.serialize_some(&d.to_rfc3339()),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<DateTime<Utc>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let opt: Option<String> = Option::deserialize(deserializer)?;
+        match opt {
+            Some(s) => DateTime::parse_from_rfc3339(&s)
+                .map(|dt| Some(dt.with_timezone(&Utc)))
+                .map_err(serde::de::Error::custom),
+            None => Ok(None),
+        }
+    }
+}
+
 /// Tipo de nodo en la estructura fractal
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -41,6 +113,7 @@ pub struct FractalNode {
     pub id: Option<Thing>,
 
     /// UUID para referencia externa
+    #[serde(with = "uuid_string")]
     pub uuid: Uuid,
 
     /// Tipo de nodo en la jerarquía fractal
@@ -76,13 +149,15 @@ pub struct FractalNode {
     pub metadata: NodeMetadata,
 
     /// Timestamp de creación
+    #[serde(with = "datetime_string")]
     pub created_at: DateTime<Utc>,
 
     /// Timestamp de última actualización
+    #[serde(with = "datetime_string")]
     pub updated_at: DateTime<Utc>,
 
     /// Timestamp de última consulta (para cache LRU)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "datetime_string_option")]
     pub last_accessed_at: Option<DateTime<Utc>>,
 }
 

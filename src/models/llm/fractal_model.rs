@@ -1,8 +1,85 @@
 #![allow(dead_code)]
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
+
+/// Deserializa un ID de SurrealDB que puede venir como string o como objeto Thing
+fn deserialize_surreal_id<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    
+    struct IdVisitor;
+    
+    impl<'de> Visitor<'de> for IdVisitor {
+        type Value = String;
+        
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string or SurrealDB Thing")
+        }
+        
+        fn visit_str<E>(self, value: &str) -> Result<String, E>
+        where
+            E: de::Error,
+        {
+            Ok(value.to_string())
+        }
+        
+        fn visit_map<A>(self, mut map: A) -> Result<String, A::Error>
+        where
+            A: de::MapAccess<'de>,
+        {
+            let mut tb: Option<String> = None;
+            let mut id: Option<serde_json::Value> = None;
+            
+            while let Some(key) = map.next_key::<String>()? {
+                match key.as_str() {
+                    "tb" => tb = Some(map.next_value()?),
+                    "id" => id = Some(map.next_value()?),
+                    _ => { let _: serde_json::Value = map.next_value()?; }
+                }
+            }
+            
+            match (tb, id) {
+                (Some(table), Some(serde_json::Value::String(s))) => Ok(format!("{}:{}", table, s)),
+                (Some(table), Some(serde_json::Value::Object(obj))) => {
+                    if let Some(serde_json::Value::String(s)) = obj.get("String") {
+                        Ok(format!("{}:{}", table, s))
+                    } else {
+                        Ok(format!("{}:{:?}", table, obj))
+                    }
+                }
+                _ => Ok("unknown".to_string())
+            }
+        }
+    }
+    
+    deserializer.deserialize_any(IdVisitor)
+}
+
+/// Deserializa Option<String> manejando "NONE" de SurrealDB
+fn deserialize_option_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value: Option<String> = Option::deserialize(deserializer)?;
+    Ok(value.filter(|s| s != "NONE" && !s.is_empty()))
+}
+
+/// Deserializa datetime que puede venir como string ISO
+fn deserialize_datetime<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    
+    let s: String = String::deserialize(deserializer)?;
+    DateTime::parse_from_rfc3339(&s)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|e| D::Error::custom(format!("Invalid datetime: {}", e)))
+}
 
 /// Estado del modelo fractal
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -10,6 +87,8 @@ use uuid::Uuid;
 pub enum FractalModelStatus {
     /// Subiendo archivo
     Uploading,
+    /// Archivo subido, esperando conversión
+    Uploaded,
     /// Convirtiendo a estructura fractal
     Converting,
     /// Listo para uso
@@ -39,12 +118,14 @@ pub struct ModelArchitecture {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FractalModel {
     /// ID del modelo
+    #[serde(deserialize_with = "deserialize_surreal_id")]
     pub id: String,
     /// Nombre del modelo
     pub name: String,
     /// Arquitectura del modelo
     pub architecture: ModelArchitecture,
     /// ID del nodo raíz del grafo fractal
+    #[serde(deserialize_with = "deserialize_option_string", default)]
     pub root_node_id: Option<String>,
     /// Estado actual
     pub status: FractalModelStatus,
@@ -55,10 +136,13 @@ pub struct FractalModel {
     /// Progreso de conversión (0-100)
     pub conversion_progress: Option<f32>,
     /// Fase actual de conversión
+    #[serde(deserialize_with = "deserialize_option_string", default)]
     pub conversion_phase: Option<String>,
     /// Fecha de creación
+    #[serde(deserialize_with = "deserialize_datetime")]
     pub created_at: DateTime<Utc>,
     /// Fecha de última actualización
+    #[serde(deserialize_with = "deserialize_datetime")]
     pub updated_at: DateTime<Utc>,
     /// Metadatos adicionales
     pub metadata: serde_json::Value,

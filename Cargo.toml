@@ -78,6 +78,13 @@ linfa-clustering = { version = "0.7", optional = true }
 byteorder = "1.5"
 memmap2 = "0.9"
 
+# Checksum verification for uploads
+sha2 = "0.10"
+
+# Bytes for streaming uploads
+bytes = "1.5"
+half = "2.7.1"
+
 [dev-dependencies]
 mockall = "0.13"
 criterion = "0.5"

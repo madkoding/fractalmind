@@ -28,27 +28,9 @@ pub async fn initialize_schema(db: &DatabaseConnection) -> Result<()> {
 
 /// Define la tabla de nodos fractales
 async fn define_nodes_table(db: &DatabaseConnection) -> Result<()> {
-    // SurrealDB 1.5.x no soporta IF NOT EXISTS, usar OVERWRITE
+    // Use SCHEMALESS to allow flexible object fields for embedding and metadata
     let query = r#"
-        DEFINE TABLE nodes SCHEMAFULL;
-
-        DEFINE FIELD uuid ON TABLE nodes TYPE string;
-        DEFINE FIELD node_type ON TABLE nodes TYPE string
-            ASSERT $value IN ["leaf", "parent", "root"];
-        DEFINE FIELD status ON TABLE nodes TYPE string
-            ASSERT $value IN ["complete", "incomplete", "pending", "deprecated"];
-        DEFINE FIELD content ON TABLE nodes TYPE string;
-        DEFINE FIELD summary ON TABLE nodes TYPE option<string>;
-        DEFINE FIELD embedding ON TABLE nodes TYPE object;
-        DEFINE FIELD depth_level ON TABLE nodes TYPE int;
-        DEFINE FIELD confidence ON TABLE nodes TYPE float
-            ASSERT $value >= 0.0 AND $value <= 1.0;
-        DEFINE FIELD namespace ON TABLE nodes TYPE string;
-        DEFINE FIELD scope ON TABLE nodes TYPE option<string>;
-        DEFINE FIELD metadata ON TABLE nodes TYPE object;
-        DEFINE FIELD created_at ON TABLE nodes TYPE datetime;
-        DEFINE FIELD updated_at ON TABLE nodes TYPE datetime;
-        DEFINE FIELD last_accessed_at ON TABLE nodes TYPE option<datetime>;
+        DEFINE TABLE nodes SCHEMALESS;
 
         DEFINE INDEX idx_uuid ON TABLE nodes COLUMNS uuid UNIQUE;
         DEFINE INDEX idx_namespace ON TABLE nodes COLUMNS namespace;
@@ -67,20 +49,11 @@ async fn define_nodes_table(db: &DatabaseConnection) -> Result<()> {
 
 /// Define la tabla de aristas
 async fn define_edges_table(db: &DatabaseConnection) -> Result<()> {
+    // Use SCHEMALESS to allow flexible serialization from Rust types
+    // SurrealDB SCHEMAFULL requires native datetime types which are complex
+    // to serialize correctly from chrono::DateTime
     let query = r#"
-        DEFINE TABLE edges SCHEMAFULL;
-
-        DEFINE FIELD from ON TABLE edges TYPE record(nodes);
-        DEFINE FIELD to ON TABLE edges TYPE record(nodes);
-        DEFINE FIELD edge_type ON TABLE edges TYPE string
-            ASSERT $value IN ["parentchild", "semantic", "temporal", "causal", "crossnamespace", "similar"];
-        DEFINE FIELD weight ON TABLE edges TYPE float;
-        DEFINE FIELD similarity ON TABLE edges TYPE float
-            ASSERT $value >= 0.0 AND $value <= 1.0;
-        DEFINE FIELD confidence ON TABLE edges TYPE float
-            ASSERT $value >= 0.0 AND $value <= 1.0;
-        DEFINE FIELD created_at ON TABLE edges TYPE datetime;
-        DEFINE FIELD updated_at ON TABLE edges TYPE datetime;
+        DEFINE TABLE edges SCHEMALESS;
 
         DEFINE INDEX idx_from ON TABLE edges COLUMNS from;
         DEFINE INDEX idx_to ON TABLE edges COLUMNS to;
@@ -148,30 +121,20 @@ async fn define_namespaces(db: &DatabaseConnection) -> Result<()> {
 /// Define tablas para modelos fractales
 async fn define_fractal_models_tables(db: &DatabaseConnection) -> Result<()> {
     let query = r#"
-        DEFINE TABLE fractal_models SCHEMAFULL;
-        DEFINE FIELD name ON TABLE fractal_models TYPE string;
-        DEFINE FIELD architecture ON TABLE fractal_models TYPE object;
-        DEFINE FIELD root_node_id ON TABLE fractal_models TYPE option<string>;
-        DEFINE FIELD status ON TABLE fractal_models TYPE string;
-        DEFINE FIELD file_path ON TABLE fractal_models TYPE string;
-        DEFINE FIELD file_size ON TABLE fractal_models TYPE int;
-        DEFINE FIELD created_at ON TABLE fractal_models TYPE datetime;
-        DEFINE FIELD updated_at ON TABLE fractal_models TYPE datetime;
-        DEFINE FIELD metadata ON TABLE fractal_models TYPE object;
+        DEFINE TABLE fractal_models SCHEMALESS;
 
         DEFINE INDEX idx_fractal_models_name ON TABLE fractal_models COLUMNS name;
         DEFINE INDEX idx_fractal_models_status ON TABLE fractal_models COLUMNS status;
 
-        DEFINE TABLE fractal_model_nodes SCHEMAFULL;
-        DEFINE FIELD model_id ON TABLE fractal_model_nodes TYPE string;
-        DEFINE FIELD embedding ON TABLE fractal_model_nodes TYPE array;
-        DEFINE FIELD layer_info ON TABLE fractal_model_nodes TYPE object;
-        DEFINE FIELD parent_id ON TABLE fractal_model_nodes TYPE option<string>;
-        DEFINE FIELD children_ids ON TABLE fractal_model_nodes TYPE array;
-        DEFINE FIELD level ON TABLE fractal_model_nodes TYPE int;
+        DEFINE TABLE fractal_model_nodes SCHEMALESS;
 
         DEFINE INDEX idx_fractal_nodes_model ON TABLE fractal_model_nodes COLUMNS model_id;
         DEFINE INDEX idx_fractal_nodes_level ON TABLE fractal_model_nodes COLUMNS level;
+        
+        DEFINE TABLE upload_sessions SCHEMALESS;
+
+        DEFINE INDEX idx_upload_sessions_id ON TABLE upload_sessions COLUMNS upload_id UNIQUE;
+        DEFINE INDEX idx_upload_sessions_status ON TABLE upload_sessions COLUMNS status;
     "#;
 
     db.query(query)

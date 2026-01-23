@@ -236,14 +236,28 @@ pub struct SearchRequest {
     pub threshold: Option<f32>,
 }
 
+/// Metadata for search results
+#[derive(Serialize)]
+pub struct SearchResultMetadata {
+    pub source: String,
+    pub tags: Vec<String>,
+}
+
 /// Search result item
 #[derive(Serialize)]
 pub struct SearchResult {
     pub node_id: String,
     pub content: String,
     pub similarity: f32,
-    pub source: Option<String>,
-    pub created_at: String,
+    pub namespace: String,
+    pub node_type: String,
+    pub metadata: SearchResultMetadata,
+    /// Depth level in fractal hierarchy (0 = leaf)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depth_level: Option<u32>,
+    /// Path through fractal graph (if SSSP used)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph_path: Option<Vec<String>>,
 }
 
 /// Response from search operation
@@ -253,6 +267,41 @@ pub struct SearchResponse {
     pub results: Vec<SearchResult>,
     pub total: usize,
     pub latency_ms: u64,
+    /// Whether SSSP navigation was used
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub used_sssp: Option<bool>,
+}
+
+// ============================================================================
+// Build Fractal API
+// ============================================================================
+
+/// Request to build fractal structure for a namespace
+#[derive(Deserialize)]
+pub struct BuildFractalRequest {
+    /// Namespace to build fractal for
+    pub namespace: Option<String>,
+    
+    /// Whether to generate summaries using LLM
+    pub generate_summaries: Option<bool>,
+    
+    /// Minimum similarity threshold for clustering (0.0 to 1.0)
+    pub similarity_threshold: Option<f32>,
+    
+    /// Maximum depth of the fractal tree
+    pub max_depth: Option<usize>,
+}
+
+/// Response from build fractal operation
+#[derive(Serialize)]
+pub struct BuildFractalResponse {
+    pub success: bool,
+    pub parent_nodes_created: usize,
+    pub edges_created: usize,
+    pub max_depth: usize,
+    pub root_node_ids: Vec<String>,
+    pub latency_ms: u64,
+    pub message: String,
 }
 
 // ============================================================================

@@ -7,20 +7,21 @@ import {
   XCircle, 
   Loader2,
   Database,
-  Zap
+  Zap,
+  Plus
 } from 'lucide-react';
 import { api } from '@/services';
+import { ChunkedUploader } from './ChunkedUploader';
 import type { FractalModel, ModelStrategy, OllamaModel } from '@/types';
 
 export const ModelManager = () => {
   const [models, setModels] = useState<FractalModel[]>([]);
   const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
+  const [showUploader, setShowUploader] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [strategy, setStrategy] = useState<ModelStrategy>('ollama');
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
-  const [dragActive, setDragActive] = useState(false);
 
   // Load models on mount and when strategy changes
   useEffect(() => {
@@ -45,81 +46,6 @@ export const ModelManager = () => {
       setLoading(false);
     }
   }, [strategy]);
-
-  const handleFileUpload = async (file: File) => {
-    // Validar extensión
-    if (!file.name.toLowerCase().endsWith('.gguf')) {
-      setError('Only GGUF files (.gguf) are supported');
-      return;
-    }
-
-    // Validar tamaño (máximo 10GB)
-    const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10GB
-    if (file.size > MAX_FILE_SIZE) {
-      setError(`File too large: ${(file.size / (1024 * 1024 * 1024)).toFixed(2)}GB (max: 10GB)`);
-      return;
-    }
-
-    // Validar tamaño mínimo
-    if (file.size < 1024) {
-      setError('File too small to be a valid GGUF model');
-      return;
-    }
-
-    try {
-      setUploading(true);
-      setError(null);
-      
-      const response = await api.uploadModel(file);
-      
-      // Add optimistic update
-      const newModel: FractalModel = {
-        id: response.model_id,
-        name: file.name,
-        status: 'uploading',
-        file_size: file.size,
-        created_at: new Date().toISOString(),
-      };
-      
-      setModels(prev => [newModel, ...prev]);
-      
-      // Auto-refresh after a delay
-      setTimeout(loadModels, 2000);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Upload failed';
-      setError(errorMsg.includes('API Error') ? errorMsg.split(' - ')[1] || errorMsg : errorMsg);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleFileUpload(file);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-
-    const file = e.dataTransfer.files[0];
-    if (file) {
-      handleFileUpload(file);
-    }
-  };
-
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
-  };
 
   const handleConvert = async (modelId: string) => {
     try {
@@ -228,12 +154,14 @@ export const ModelManager = () => {
               Ollama (Direct)
             </button>
             <button
-              onClick={() => handleStrategyChange('fractal')}
-              disabled={!selectedModel}
+              onClick={() => {
+                setStrategy('fractal');
+                loadModels();
+              }}
               className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
                 strategy === 'fractal'
                   ? 'bg-purple-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
               }`}
             >
               <Database className="w-4 h-4" />
@@ -252,37 +180,26 @@ export const ModelManager = () => {
 
       {/* Upload Area */}
       <div className="p-6">
-        <div
-          onDragEnter={handleDrag}
-          onDragLeave={handleDrag}
-          onDragOver={handleDrag}
-          onDrop={handleDrop}
-          className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-            dragActive
-              ? 'border-blue-500 bg-blue-500/10'
-              : 'border-gray-700 hover:border-gray-600'
-          }`}
-        >
-          <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-          <p className="text-lg mb-2">
-            {uploading ? 'Uploading...' : 'Drop GGUF model here or click to browse'}
-          </p>
-          <p className="text-sm text-gray-500 mb-4">
-            Supported formats: .gguf (max 10GB)
-          </p>
-          <label className="inline-block">
-            <input
-              type="file"
-              accept=".gguf"
-              onChange={handleFileChange}
-              disabled={uploading}
-              className="hidden"
-            />
-            <span className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer inline-block disabled:opacity-50 disabled:cursor-not-allowed">
-              {uploading ? 'Uploading...' : 'Select File'}
-            </span>
-          </label>
-        </div>
+        {showUploader ? (
+          <ChunkedUploader
+            onUploadComplete={(modelId) => {
+              setShowUploader(false);
+              loadModels();
+            }}
+            onCancel={() => setShowUploader(false)}
+          />
+        ) : (
+          <button
+            onClick={() => setShowUploader(true)}
+            className="w-full border-2 border-dashed border-gray-700 hover:border-blue-500 rounded-lg p-8 text-center transition-colors group"
+          >
+            <Plus className="w-12 h-12 mx-auto mb-4 text-gray-400 group-hover:text-blue-400" />
+            <p className="text-lg mb-2 text-gray-300">Upload GGUF Model</p>
+            <p className="text-sm text-gray-500">
+              Click to upload a model file (supports files up to 1TB with chunked upload)
+            </p>
+          </button>
+        )}
       </div>
 
       {/* Models List */}

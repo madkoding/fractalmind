@@ -9,7 +9,6 @@ interface ChunkedUploaderProps {
 }
 
 const CHUNK_SIZE = 50 * 1024 * 1024; // 50MB chunks
-const MAX_CONCURRENT_CHUNKS = 3;
 
 export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderProps) => {
   const [file, setFile] = useState<File | null>(null);
@@ -20,7 +19,7 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Poll for progress updates
   useEffect(() => {
@@ -101,6 +100,9 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
   const startUpload = async () => {
     if (!file) return;
 
+    const currentFile = file; // Capture file reference
+    let localUploadId: string | null = null;
+
     try {
       setUploading(true);
       setError(null);
@@ -108,54 +110,53 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
 
       // Initialize upload
       const initResponse = await api.initUpload({
-        filename: file.name,
-        total_size: file.size,
+        filename: currentFile.name,
+        total_size: currentFile.size,
         chunk_size: CHUNK_SIZE,
       });
 
+      localUploadId = initResponse.upload_id;
       setUploadId(initResponse.upload_id);
       const totalChunks = initResponse.total_chunks;
 
-      // Upload chunks with concurrency control
-      const chunks: Promise<void>[] = [];
-      let activeUploads = 0;
-      let completedChunks = 0;
+      console.log(`Starting upload: ${totalChunks} chunks for ${currentFile.name}`);
 
-      for (let i = 0; i < totalChunks; i++) {
-        // Wait if we've reached max concurrency
-        while (activeUploads >= MAX_CONCURRENT_CHUNKS) {
-          await Promise.race(chunks);
-        }
-
+      // Upload chunks sequentially (more reliable for large files)
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
         // Check if aborted
         if (abortControllerRef.current?.signal.aborted) {
           throw new Error('Upload cancelled');
         }
 
-        const start = i * CHUNK_SIZE;
-        const end = Math.min(start + CHUNK_SIZE, file.size);
-        const chunkBlob = file.slice(start, end);
+        const start = chunkIndex * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, currentFile.size);
+        const chunkBlob = currentFile.slice(start, end);
 
-        activeUploads++;
-        const chunkPromise = (async () => {
+        // Retry logic
+        let success = false;
+        for (let attempt = 1; attempt <= 3 && !success; attempt++) {
           try {
-            await api.uploadChunk(initResponse.upload_id, i, totalChunks, chunkBlob);
-            completedChunks++;
+            await api.uploadChunk(localUploadId, chunkIndex, totalChunks, chunkBlob);
+            success = true;
+            if (chunkIndex % 10 === 0) {
+              console.log(`Uploaded chunk ${chunkIndex + 1}/${totalChunks}`);
+            }
           } catch (err) {
-            throw new Error(`Failed to upload chunk ${i}: ${err}`);
-          } finally {
-            activeUploads--;
+            console.error(`Chunk ${chunkIndex} attempt ${attempt} failed:`, err);
+            if (attempt === 3) {
+              throw new Error(`Failed to upload chunk ${chunkIndex} after 3 attempts`);
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
           }
-        })();
-
-        chunks.push(chunkPromise);
+        }
       }
 
-      // Wait for all chunks to complete
-      await Promise.all(chunks);
+      console.log('All chunks uploaded, finalizing...');
 
-      // Finalize upload
-      await api.finalizeUpload(initResponse.upload_id);
+      // Finalize upload (will auto-convert)
+      await api.finalizeUpload(localUploadId);
+
+      console.log('Upload finalized successfully');
 
       // Progress polling will detect completion and notify parent
     } catch (err) {
@@ -163,9 +164,9 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
       setUploading(false);
       
       // Cancel upload on server
-      if (uploadId) {
+      if (localUploadId) {
         try {
-          await api.cancelUpload(uploadId);
+          await api.cancelUpload(localUploadId);
         } catch {
           // Ignore cancel errors
         }

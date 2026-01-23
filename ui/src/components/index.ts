@@ -3,5 +3,3 @@ export { ChatArea } from './ChatArea';
 export { ChatMessage, ChatMessageLoading } from './ChatMessage';
 export { ChatInput } from './ChatInput';
 export { SettingsModal } from './SettingsModal';
-export { ModelManager } from './ModelManager';
-export { ChunkedUploader } from './ChunkedUploader';

@@ -26,6 +26,7 @@ use crate::models::llm::{ModelBrain, BrainConfig};
 use crate::cache::{NodeCache, EmbeddingCache, CacheConfig};
 use crate::api::handlers::{AppState, SharedState};
 use crate::api::progress::create_progress_tracker;
+use crate::services::{StorageManager, UploadSessionManager, UploadCleanupJob, RemScheduler, RemSchedulerConfig};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -97,6 +98,37 @@ async fn main() -> Result<()> {
     
     // Crear progress tracker para ingestion
     let progress_tracker = create_progress_tracker();
+    
+    // Inicializar upload manager para modelos GGUF
+    info!("Initializing upload manager...");
+    let storage = StorageManager::new();
+    let upload_manager = UploadSessionManager::new(storage);
+    if let Err(e) = upload_manager.init().await {
+        warn!("Failed to initialize upload manager (non-fatal): {}", e);
+    }
+    let upload_manager = Arc::new(upload_manager);
+    
+    // Iniciar cleanup job para sesiones de upload expiradas (cada 60 minutos)
+    let cleanup_job = UploadCleanupJob::new(upload_manager.clone(), 60);
+    let _cleanup_handle = cleanup_job.start();
+    info!("Upload cleanup job started (runs every 60 minutes)");
+
+    // Iniciar REM Scheduler para consolidación nocturna automática
+    let rem_config = RemSchedulerConfig::from_env();
+    if rem_config.enabled {
+        // Clonar db y brain para el scheduler
+        let db_clone = db::connection::connect_db(&db_config).await?;
+        let brain_clone = ModelBrain::new_without_health_check(BrainConfig::from_env().unwrap_or_else(|_| BrainConfig::default_local()))?;
+        
+        let rem_scheduler = Arc::new(RemScheduler::new(rem_config.clone(), db_clone, brain_clone));
+        let _rem_handle = rem_scheduler.start();
+        info!(
+            "🌙 REM Scheduler enabled (active hours: {:02}:00 - {:02}:00)",
+            rem_config.start_hour, rem_config.end_hour
+        );
+    } else {
+        info!("REM Scheduler disabled (set REM_SCHEDULER_ENABLED=true to enable)");
+    }
 
     // Crear estado compartido
     let state = Arc::new(RwLock::new(AppState {
@@ -105,6 +137,7 @@ async fn main() -> Result<()> {
         node_cache,
         embedding_cache,
         progress_tracker,
+        upload_manager,
     }));
 
     // Configurar CORS (permisivo para desarrollo)
@@ -125,7 +158,7 @@ async fn main() -> Result<()> {
     // Crear router usando el módulo api::routes
     // IMPORTANTE: El orden de los layers es de abajo hacia arriba
     // CORS debe procesarse primero (último en la cadena de .layer())
-    let app = api::routes::create_router(state).await
+    let app = api::routes::create_router(state)
         // Middleware (orden inverso: cors se aplica primero a las requests)
         .layer(cors)
         .layer(TraceLayer::new_for_http());

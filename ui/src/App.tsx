@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import { Sidebar, ChatArea, SettingsModal, ModelManager } from '@/components';
+import { Sidebar, ChatArea, SettingsModal } from '@/components';
 import { VibeKanbanWebCompanion } from 'vibe-kanban-web-companion';
 
 function App() {
   const [showSettings, setShowSettings] = useState(false);
-  const [currentView, setCurrentView] = useState<'chat' | 'models'>('chat');
 
   return (
     <>
@@ -13,12 +12,10 @@ function App() {
         {/* Sidebar */}
         <Sidebar 
           onSettingsClick={() => setShowSettings(true)}
-          onViewChange={setCurrentView}
-          currentView={currentView}
         />
 
         {/* Main content */}
-        {currentView === 'chat' ? <ChatArea /> : <ModelManager />}
+        <ChatArea />
 
         {/* Settings Modal */}
         <SettingsModal
