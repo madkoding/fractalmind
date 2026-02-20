@@ -16,7 +16,7 @@ async-stream = "0.3"
 # Web Framework
 axum = { version = "0.7", features = ["macros", "multipart"] }
 tower = { version = "0.5", features = ["full"] }
-tower-http = { version = "0.5", features = ["trace", "cors", "timeout"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "timeout"] }
 http = "1.1"
 
 # Database
