@@ -65,7 +65,7 @@ uuid = { version = "1.10", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # OCR para ingesta de imágenes
-tesseract = { version = "0.14", optional = true }
+tesseract = { version = "0.15", optional = true }
 
 # PDF parsing
 pdf-extract = { version = "0.7", optional = true }
