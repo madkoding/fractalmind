@@ -87,7 +87,7 @@ half = "2.7.1"
 
 [dev-dependencies]
 mockall = "0.13"
-criterion = "0.5"
+criterion = "0.8"
 
 [features]
 default = []
