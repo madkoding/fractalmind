@@ -1,5 +1,7 @@
 # Fractal-Mind
 
+[![Version](https://img.shields.io/github/v/release/madkoding/fractalmind?logo=github)](https://github.com/madkoding/fractalmind/releases) [![CI](https://img.shields.io/github/actions/workflow/status/madkoding/fractalmind/ci.yml?logo=github&label=CI)](https://github.com/madkoding/fractalmind/actions) [![Rust](https://img.shields.io/badge/rust-1.75+-DC2626?logo=rust&logoColor=white)](https://www.rust-lang.org)
+
 Sistema de IA con memoria evolutiva y aprendizaje autónomo. Combina la precisión de grafos con la flexibilidad de embeddings vectoriales para crear un motor de conocimiento que imita la cognición humana.
 
 ## Arquitectura
