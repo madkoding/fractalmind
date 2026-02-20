@@ -36,7 +36,7 @@ ndarray = "0.16"
 petgraph = "0.6"
 
 # Cache
-lru = "0.12"
+lru = "0.16"
 lazy_static = "1.5"
 
 # HTTP Client (para búsqueda web en fase REM)
