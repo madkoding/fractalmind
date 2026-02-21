@@ -31,9 +31,13 @@ fractalmind/
 │   ├── embeddings/      # Embedding generation (fastembed)
 │   ├── cache/           # LRU cache for frequent nodes
 │   └── utils/           # General utilities
+├── docs/                # Technical documentation
+│   ├── FRACTAL_MIND_CORE_SPEC.md
+│   ├── GUIA_USO_MODELOS_FRACTALES.md
+│   ├── MODELOS_FRACTALES_IMPLEMENTACION.md
+│   └── OpenClaw_INTEGRATION.md
 ├── docker-compose.yml   # Service orchestration
-├── Dockerfile           # Rust backend image
-└── FRACTAL_MIND_CORE_SPEC.md  # Complete technical specification
+└── Dockerfile           # Rust backend image
 ```
 
 ## Quick Start
