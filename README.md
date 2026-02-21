@@ -1,142 +1,142 @@
-# Fractal-Mind
+# FractalMind
 
 [![Version](https://img.shields.io/github/v/release/madkoding/fractalmind?logo=github)](https://github.com/madkoding/fractalmind/releases) [![CI](https://img.shields.io/github/actions/workflow/status/madkoding/fractalmind/ci.yml?logo=github&label=CI)](https://github.com/madkoding/fractalmind/actions) [![Rust](https://img.shields.io/badge/rust-1.75+-DC2626?logo=rust&logoColor=white)](https://www.rust-lang.org)
 
-Sistema de IA con memoria evolutiva y aprendizaje autónomo. Combina la precisión de grafos con la flexibilidad de embeddings vectoriales para crear un motor de conocimiento que imita la cognición humana.
+AI system with evolutionary memory and autonomous learning. Combines graph precision with vector embedding flexibility to create a knowledge engine that mimics human cognition.
 
-## Arquitectura
+## Architecture
 
-### Fases de Operación
+### Operating Phases
 
-- **Vigilia (Wakefulness)**: Respuestas rápidas usando navegación fractal del grafo con SSSP
-- **Fase REM (Sleep)**: Aprendizaje asíncrono, consolidación de memoria y búsqueda web
+- **Vigilia (Wakefulness)**: Fast responses using fractal graph navigation with SSSP
+- **REM Phase (Sleep)**: Asynchronous learning, memory consolidation, and web search
 
-### Componentes Principales
+### Core Components
 
-- **Motor de Almacenamiento**: SurrealDB con persistencia en SSD e índices HNSW para vectores
-- **Grafo Fractal**: Estructura recursiva RAPTOR con clustering semántico
-- **Multi-Usuario**: Separación estricta con NAMESPACE (global/personal) y SCOPE por usuario
-- **Navegación Optimizada**: O(m log^(2/3) n) usando hopsets para caminos mínimos
+- **Storage Engine**: SurrealDB with SSD persistence and HNSW indices for vectors
+- **Fractal Graph**: RAPTOR recursive structure with semantic clustering
+- **Multi-User**: Strict separation with NAMESPACE (global/personal) and SCOPE per user
+- **Optimized Navigation**: O(m log^(2/3) n) using hopsets for shortest paths
 
-## Estructura del Proyecto
+## Project Structure
 
 ```
 fractalmind/
 ├── src/
-│   ├── models/          # Modelos de datos (nodos, aristas, embeddings)
-│   ├── db/              # Configuración y queries de SurrealDB
-│   ├── api/             # Endpoints HTTP (Axum)
-│   ├── services/        # Lógica de negocio (ingesta, REM, queries)
-│   ├── graph/           # Algoritmos de grafo (SSSP, RAPTOR)
-│   ├── embeddings/      # Generación de embeddings (fastembed)
-│   ├── cache/           # LRU cache para nodos frecuentes
-│   └── utils/           # Utilidades generales
-├── docker-compose.yml   # Orquestación de servicios
-├── Dockerfile           # Imagen del backend Rust
-└── FRACTAL_MIND_CORE_SPEC.md  # Especificación técnica completa
+│   ├── models/          # Data models (nodes, edges, embeddings)
+│   ├── db/              # SurrealDB configuration and queries
+│   ├── api/             # HTTP endpoints (Axum)
+│   ├── services/        # Business logic (ingestion, REM, queries)
+│   ├── graph/           # Graph algorithms (SSSP, RAPTOR)
+│   ├── embeddings/      # Embedding generation (fastembed)
+│   ├── cache/           # LRU cache for frequent nodes
+│   └── utils/           # General utilities
+├── docker-compose.yml   # Service orchestration
+├── Dockerfile           # Rust backend image
+└── FRACTAL_MIND_CORE_SPEC.md  # Complete technical specification
 ```
 
-## Inicio Rápido
+## Quick Start
 
-### Prerrequisitos
+### Prerequisites
 
 - Rust 1.75+
 - Docker & Docker Compose
-- 4GB RAM mínimo (8GB recomendado)
+- Minimum 4GB RAM (8GB recommended)
 
-### Instalación
+### Installation
 
-1. **Clonar y configurar**:
+1. **Clone and configure**:
 ```bash
 git clone <repo-url>
 cd fractalmind
 
-# Usar el script de desarrollo (recomendado)
+# Use development script (recommended)
 ./dev.sh run
 
-# O manualmente con cargo
+# Or manually with cargo
 cargo run --features pdf
 cp .env.example .env
-# Editar .env con tu configuración
+# Edit .env with your configuration
 ```
 
-2. **Iniciar SurrealDB**:
+2. **Start SurrealDB**:
 ```bash
 docker-compose up -d surrealdb
 ```
 
-3. **Compilar y ejecutar**:
+3. **Build and run**:
 ```bash
 cargo build --release
 cargo run
 ```
 
-O con Docker Compose completo:
+Or with full Docker Compose:
 ```bash
 docker-compose --profile full up -d
 ```
 
-### Desarrollo
+### Development
 
 ```bash
-# Compilación rápida (desarrollo)
+# Fast build (development)
 cargo build
 
 # Tests
 cargo test
 
-# Tests de integración (requiere SurrealDB corriendo)
+# Integration tests (requires running SurrealDB)
 cargo test -- --ignored
 
 # Linting
 cargo clippy
 
-# Formateo
+# Formatting
 cargo fmt
 ```
 
 ## API Endpoints
 
-| Endpoint | Método | Descripción |
+| Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/v1/ingest` | POST | Ingesta de archivos (PDF, imágenes, texto) |
-| `/v1/remember` | POST | Memoria episódica/conversacional |
-| `/v1/ask` | POST | Query con navegación fractal |
-| `/v1/sync_rem` | POST | Trigger de fase REM (consolidación + web) |
-| `/v1/memory` | PATCH | Actualización manual de conocimiento |
+| `/v1/ingest` | POST | Ingest files (PDF, images, text) |
+| `/v1/remember` | POST | Episodic/conversational memory |
+| `/v1/ask` | POST | Query with fractal navigation |
+| `/v1/sync_rem` | POST | Trigger REM phase (consolidation + web) |
+| `/v1/memory` | PATCH | Manual knowledge update |
 
-## Modelo de Datos
+## Data Model
 
 ### FractalNode
 
-Nodo fundamental del grafo con:
-- **Tipo**: Leaf, Parent, Root
-- **Estado**: Complete, Incomplete, Pending, Deprecated
-- **Embedding**: Vector semántico (768D Nomic, 384D BGE, 512D CLIP)
-- **Namespace**: global_knowledge o user_<id>
-- **Metadata**: Fuente, tags, idioma, conteo de accesos
+Fundamental graph node with:
+- **Type**: Leaf, Parent, Root
+- **Status**: Complete, Incomplete, Pending, Deprecated
+- **Embedding**: Semantic vector (768D Nomic, 384D BGE, 512D CLIP)
+- **Namespace**: global_knowledge or user_<id>
+- **Metadata**: Source, tags, language, access count
 
 ### FractalEdge
 
-Arista con peso calculado como `1/similitud`:
-- **Tipos**: ParentChild, Semantic, Temporal, CrossNamespace
-- **Peso**: Para shortest path (menor = más relevante)
-- **Similitud**: Coseno entre embeddings (0.0-1.0)
+Edge with weight calculated as `1/similarity`:
+- **Types**: ParentChild, Semantic, Temporal, CrossNamespace
+- **Weight**: For shortest path (lower = more relevant)
+- **Similarity**: Cosine between embeddings (0.0-1.0)
 
-## Ciclo de Aprendizaje (Fase REM)
+## Learning Cycle (REM Phase)
 
-1. Detectar nodos con `status: incomplete`
-2. Búsqueda web para obtener múltiples perspectivas
-3. Sintetizar información en nodos nuevos (namespace global)
-4. Clustering semántico de hojas → generar resúmenes padre
-5. Crear enlaces entre memoria personal ↔ global
+1. Detect nodes with `status: incomplete`
+2. Web search to gather multiple perspectives
+3. Synthesize information into new nodes (global namespace)
+4. Semantic clustering of leaves → generate parent summaries
+5. Create links between personal ↔ global memory
 
-## Configuración
+## Configuration
 
-Variables clave en `.env`:
+Key variables in `.env`:
 
 ```bash
-# Base de datos
+# Database
 SURREAL_URL=ws://localhost:8000
 SURREAL_NS=fractalmind
 SURREAL_DB=knowledge
@@ -145,10 +145,10 @@ SURREAL_DB=knowledge
 EMBEDDING_MODEL=nomic-embed-text-v1.5
 EMBEDDING_DIMENSION=768
 
-# Cache LRU
+# LRU Cache
 CACHE_SIZE=1000
 
-# Fase REM
+# REM Phase
 REM_INTERVAL_MINUTES=60
 WEB_SEARCH_PROVIDER=searxng
 WEB_SEARCH_BASE_URL=http://localhost:8080
@@ -156,22 +156,22 @@ WEB_SEARCH_BASE_URL=http://localhost:8080
 
 ## Roadmap
 
-- [x] Modelo de datos fractal
-- [x] Configuración de SurrealDB con HNSW
-- [x] Estructura de proyecto Rust
-- [x] Módulo LLM (Cerebro) con providers Ollama/OpenAI
-- [x] Servicio de embeddings (fastembed)
-- [x] Cache LRU optimizado
-- [x] API REST (Axum)
-- [x] Algoritmo RAPTOR para clustering
-- [x] Navegación SSSP con hopsets
-- [x] Fase REM asíncrona
-- [x] Ingesta de PDF/imágenes con OCR
+- [x] Fractal data model
+- [x] SurrealDB configuration with HNSW
+- [x] Rust project structure
+- [x] LLM module (Brain) with Ollama/OpenAI providers
+- [x] Embeddings service (fastembed)
+- [x] Optimized LRU cache
+- [x] REST API (Axum)
+- [x] RAPTOR algorithm for clustering
+- [x] SSSP navigation with hopsets
+- [x] Asynchronous REM phase
+- [x] PDF/image ingestion with OCR
 - [x] Web UI (React/Tauri)
 
-## Licencia
+## License
 
 MIT
 
 <!-- AUTO-UPDATE-DATE -->
-**Última actualización:** 2026-02-20 21:23:53 -03
+**Last updated:** 2026-02-20 21:23:53 -03
