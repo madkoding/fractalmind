@@ -62,6 +62,7 @@ cd fractalmind
 **Docker Services:**
 - **SurrealDB** (port 8000): Database with persistent SSD storage in `./data/surrealdb/`
 - **SearXNG** (port 8080): Local web search for REM phase
+- **FractalMind API** (port 9000): Main API server (default: 9000, configurable via SERVER_PORT)
 
 **Data Persistence:**
 - All database data is stored in `./data/surrealdb/fractalmind.db` on your host machine
@@ -190,12 +191,12 @@ WEB_SEARCH_ENABLED=true
 
 ```bash
 # Ingest content - FastEmbed handles embeddings automatically
-curl -X POST http://localhost:3000/v1/ingest \
+curl -X POST http://localhost:9000/v1/ingest \
   -H "Content-Type: application/json" \
   -d '{"content": "Your text here", "namespace": "global"}'
 
 # Query - embeddings retrieved from DB (no model needed)
-curl -X POST http://localhost:3000/v1/ask \
+curl -X POST http://localhost:9000/v1/ask \
   -d '{"query": "What is this about?", "namespace": "global"}'
 ```
 

@@ -163,11 +163,11 @@ async fn main() -> Result<()> {
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 
-    // Obtener puerto desde env
+    // Obtener puerto desde env (default: 9000 - bajo uso)
     let port: u16 = std::env::var("SERVER_PORT")
-        .unwrap_or_else(|_| "3000".to_string())
+        .unwrap_or_else(|_| "9000".to_string())
         .parse()
-        .unwrap_or(3000);
+        .unwrap_or(9000);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
