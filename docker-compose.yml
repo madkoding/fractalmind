@@ -26,6 +26,30 @@ services:
     networks:
       - fractalmind-network
 
+  searxng:
+    image: searxng/searxng:latest
+    container_name: fractalmind-searxng
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data/searxng:/etc/searxng
+      - ./searxng:/searxng
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+      - UWSGI_WORKERS=2
+      - UWSGI_THREADS=2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - fractalmind-network
+    profiles:
+      - searxng  # Default - enabled automatically
+
   # Servicio backend Rust (se ejecutará después de la implementación)
   fractalmind-api:
     build:
@@ -40,6 +64,8 @@ services:
     depends_on:
       surrealdb:
         condition: service_healthy
+      searxng:
+        condition: service_healthy
     environment:
       - RUST_LOG=debug,fractalmind=trace
       - SURREAL_URL=ws://surrealdb:8000
@@ -47,6 +73,8 @@ services:
       - SURREAL_PASS=root
       - SURREAL_NS=fractalmind
       - SURREAL_DB=knowledge
+      - WEB_SEARCH_PROVIDER=searxng
+      - WEB_SEARCH_BASE_URL=http://searxng:8080
     volumes:
       - ./target:/app/target  # Cache de compilación para desarrollo
     networks:
@@ -60,3 +88,4 @@ networks:
 
 volumes:
   surrealdb-data:
+  searxng-data:

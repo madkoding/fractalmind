@@ -1,0 +1,69 @@
+# SearXNG configuration for FractalMind
+
+server:
+  secret_key: fractalmind-searxng-secret-2026
+  port: 8080
+  bind_address: 0.0.0.0
+
+general:
+  debug: false
+  instance_name: "FractalMind Search"
+  privacypolicy_url: ""
+  contact_url: ""
+  donation_url: ""
+  git_url: ""
+  issue_url: ""
+  public_instances: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  autocomplete_backend: ""
+
+ui:
+  static_use_hash: true
+  search_on_category_select: false
+
+plugins:
+  - basic
+  - browser_statistics
+  - self_info
+  - tracker_url_remover
+
+engines:
+  # Enable multiple search engines for redundancy
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+  
+  - name: google
+    engine: google
+    shortcut: gg
+    disabled: false
+  
+  - name: bing
+    engine: bing
+    shortcut: bi
+    disabled: false
+  
+  - name: brave
+    engine: brave
+    shortcut: br
+    disabled: false
+
+  # FractalMind custom fallback
+  - name: searxng_self
+    engine: searxng
+    shortcut: sx
+    disabled: false
+    base_url: http://localhost:8080/
+    version: "1.0"
+
+# Custom settings for FractalMind
+fractalmind:
+  enabled: true
+  web_search_enabled: true
+  search_timeout: 30
+  max_results: 10
+  language: "en"

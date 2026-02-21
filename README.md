@@ -36,8 +36,10 @@ fractalmind/
 │   ├── GUIA_USO_MODELOS_FRACTALES.md
 │   ├── MODELOS_FRACTALES_IMPLEMENTACION.md
 │   └── OpenClaw_INTEGRATION.md
-├── docker-compose.yml   # Service orchestration
-└── Dockerfile           # Rust backend image
+├── searxng/
+│   └── searxng-config.yml   # SearXNG configuration (local web search)
+├── docker-compose.yml       # Service orchestration (includes SearXNG)
+└── Dockerfile               # Rust backend image
 ```
 
 ## Quick Start
@@ -50,26 +52,20 @@ fractalmind/
 
 ### Installation
 
-1. **Clone and configure**:
+1. **Clone and run**:
 ```bash
 git clone <repo-url>
 cd fractalmind
-
-# Use development script (recommended)
 ./dev.sh run
-
-# Or manually with cargo
-cargo run --features pdf
-cp .env.example .env
-# Edit .env with your configuration
 ```
 
-2. **Start SurrealDB**:
-```bash
-docker-compose up -d surrealdb
-```
+**SearXNG Integration:**
+- automatically included in docker-compose (profile: searxng)
+- provides web search for REM phase
+- runs on http://localhost:8080
+- if unavailable, REM phase web search disabled (still works with local knowledge)
 
-3. **Build and run**:
+2. **Build and run**:
 ```bash
 cargo build --release
 cargo run
