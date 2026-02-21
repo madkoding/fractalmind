@@ -59,6 +59,15 @@ cd fractalmind
 ./dev.sh run
 ```
 
+**Docker Services:**
+- **SurrealDB** (port 8000): Database with persistent SSD storage in `./data/surrealdb/`
+- **SearXNG** (port 8080): Local web search for REM phase
+
+**Data Persistence:**
+- All database data is stored in `./data/surrealdb/fractalmind.db` on your host machine
+- Survives container restarts and updates
+- Backup: copy the `data/surrealdb/` directory
+
 **SearXNG Integration:**
 - automatically included in docker-compose (profile: searxng)
 - provides web search for REM phase
