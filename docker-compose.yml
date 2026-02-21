@@ -5,8 +5,7 @@ services:
     image: surrealdb/surrealdb:v1.5.6
     container_name: fractalmind-db
     restart: unless-stopped
-    ports:
-      - "8000:8000"
+    # No exposed ports - only accessible via docker network
     command:
       - start
       - --log=info
@@ -30,8 +29,7 @@ services:
     image: searxng/searxng:latest
     container_name: fractalmind-searxng
     restart: unless-stopped
-    ports:
-      - "8080:8080"
+    # No exposed ports - only accessible via docker network
     volumes:
       - ./data/searxng:/etc/searxng
       - ./searxng:/searxng
@@ -48,17 +46,18 @@ services:
     networks:
       - fractalmind-network
     profiles:
-      - searxng  # Default - enabled automatically
+      - searxng
 
-  # Servicio backend Rust (se ejecutará después de la implementación)
+  # Servicio backend Rust
   fractalmind-api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: fractalmind-api
     restart: unless-stopped
+    # Only fractalmind API exposed to host
     ports:
-      - "3000:3000"
+      - "9000:9000"
     extra_hosts:
       - "tachikoma:host-gateway"
     depends_on:
@@ -76,11 +75,11 @@ services:
       - WEB_SEARCH_PROVIDER=searxng
       - WEB_SEARCH_BASE_URL=http://searxng:8080
     volumes:
-      - ./target:/app/target  # Cache de compilación para desarrollo
+      - ./target:/app/target
     networks:
       - fractalmind-network
     profiles:
-      - full  # Solo se inicia con: docker-compose --profile full up
+      - full
 
 networks:
   fractalmind-network:
