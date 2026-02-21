@@ -150,7 +150,10 @@ SURREAL_URL=ws://localhost:8000
 SURREAL_NS=fractalmind
 SURREAL_DB=knowledge
 
-# Embeddings
+# Embeddings (local - no external service needed)
+# FastEmbed generates embeddings locally when you ingest content
+# Embeddings are stored in SurrealDB with HNSW index
+# Once ingested, no embedding model running required!
 EMBEDDING_MODEL=nomic-embed-text-v1.5
 EMBEDDING_DIMENSION=768
 
@@ -161,6 +164,39 @@ CACHE_SIZE=1000
 REM_INTERVAL_MINUTES=60
 WEB_SEARCH_PROVIDER=searxng
 WEB_SEARCH_BASE_URL=http://localhost:8080
+WEB_SEARCH_ENABLED=true
+```
+
+## Embeddings - How It Works
+
+**FractalMind uses local embeddings via FastEmbed - no external API needed!**
+
+1. **Ingestion Phase**: When you add content via `/v1/ingest`, FastEmbed automatically generates embeddings locally
+2. **Storage**: Embeddings + content stored in SurrealDB with HNSW vector index
+3. **Query Time**: Embeddings loaded from DB - no embedding model needed at runtime!
+4. **REM Phase**: Uses web search (SearXNG) to gather knowledge - no embeddings needed
+
+### Benefits:
+
+| Feature | Description |
+|---------|-------------|
+| ✅ **No External API** | FastEmbed generates embeddings locally |
+| ✅ **No Cost** | No OpenAI/Anthropic costs for embeddings |
+| ✅ **No Model Running** | Embeddings pre-computed at ingestion |
+| ✅ **Fast** | FastEmbed is optimized for speed |
+| ✅ **Multiple Models** | Nomic (768D), BGE (384D), CLIP (512D) |
+
+### Example Usage:
+
+```bash
+# Ingest content - FastEmbed handles embeddings automatically
+curl -X POST http://localhost:3000/v1/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Your text here", "namespace": "global"}'
+
+# Query - embeddings retrieved from DB (no model needed)
+curl -X POST http://localhost:3000/v1/ask \
+  -d '{"query": "What is this about?", "namespace": "global"}'
 ```
 
 ## Roadmap
