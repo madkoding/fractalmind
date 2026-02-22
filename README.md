@@ -1,6 +1,6 @@
 # FractalMind
 
-[![Release](https://img.shields.io/github/v/release/madkoding/fractalmind?logo=github)](https://github.com/madkoding/fractalmind/releases/tag/v2.0.0) [![CI](https://img.shields.io/github/actions/workflow/status/madkoding/fractalmind/ci.yml?logo=github&label=CI)](https://github.com/madkoding/fractalmind/actions) [![Rust](https://img.shields.io/badge/rust-1.75+-DC2626?logo=rust&logoColor=white)](https://www.rust-lang.org)
+[![Release](https://img.shields.io/github/v/release/madkoding/fractalmind?logo=github)](https://github.com/madkoding/fractalmind/releases/tag/v1.0.0) [![CI](https://img.shields.io/github/actions/workflow/status/madkoding/fractalmind/ci.yml?logo=github&label=CI)](https://github.com/madkoding/fractalmind/actions) [![Rust](https://img.shields.io/badge/rust-1.75+-DC2626?logo=rust&logoColor=white)](https://www.rust-lang.org)
 
 AI system with evolutionary memory and autonomous learning. Combines graph precision with vector embedding flexibility to create a knowledge engine that mimics human cognition.
 
@@ -49,6 +49,13 @@ fractalmind/
 - Rust 1.75+
 - Docker & Docker Compose
 - Minimum 4GB RAM (8GB recommended)
+
+## Demo
+
+<!-- Screenshot: Add image here -->
+![FractalMind API Dashboard](./docs/screenshot.png)
+
+*FractalMind API running on port 9000 with SurrealDB and SearXNG*
 
 ### Installation
 
