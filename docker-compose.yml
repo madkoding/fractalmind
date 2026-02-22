@@ -5,13 +5,16 @@ services:
     image: surrealdb/surrealdb:v1.5.6
     container_name: fractalmind-db
     restart: unless-stopped
+    user: "1000:1000"
     # No exposed ports - only accessible via docker network
     command:
       - start
       - --log=info
       - --user=root
       - --pass=root
-      - file:/data/fractalmind.db
+      - --bind
+      - 0.0.0.0:8000
+      - memory
     volumes:
       - ./data/surrealdb:/data
     environment:
@@ -37,16 +40,8 @@ services:
       - SEARXNG_BASE_URL=http://localhost:8080/
       - UWSGI_WORKERS=2
       - UWSGI_THREADS=2
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
     networks:
       - fractalmind-network
-    profiles:
-      - searxng
 
   # Servicio backend Rust
   fractalmind-api:
@@ -57,13 +52,11 @@ services:
     restart: unless-stopped
     # Only fractalmind API exposed to host
     ports:
-      - "9000:9000"
+      - "12000:9000"
     extra_hosts:
       - "tachikoma:host-gateway"
     depends_on:
       surrealdb:
-        condition: service_healthy
-      searxng:
         condition: service_healthy
     environment:
       - RUST_LOG=debug,fractalmind=trace
@@ -78,8 +71,6 @@ services:
       - ./target:/app/target
     networks:
       - fractalmind-network
-    profiles:
-      - full
 
 networks:
   fractalmind-network:
