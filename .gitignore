@@ -16,6 +16,23 @@ Cargo.lock
 .env.local
 .env.*.local
 
+# Never commit API keys or secrets (keep .env.example for reference)
+.env.production
+.env.development
+.env.staging
+*.key
+*.pem
+*.p12
+*.pfx
+.id_rsa
+.id_dsa
+*.secret
+*.token
+*.jwt
+CREDENTIALS.md
+API_KEYS.md
+secrets/
+
 # Logs
 *.log
 logs/
