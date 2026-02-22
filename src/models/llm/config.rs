@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use anyhow::{Result, bail};
+use std::fmt;
 
 /// Tipo de modelo en el sistema
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -24,6 +25,7 @@ pub enum ModelProvider {
     Ollama {
         base_url: String,
         model_name: String,
+        api_key: Option<String>,
     },
     /// OpenAI API (remoto)
     OpenAI {
@@ -32,15 +34,9 @@ pub enum ModelProvider {
         organization: Option<String>,
     },
     /// Anthropic Claude API (remoto)
-    Anthropic {
-        api_key: String,
-        model_name: String,
-    },
+    Anthropic { api_key: String, model_name: String },
     /// Hugging Face API (remoto)
-    HuggingFace {
-        api_key: String,
-        model_name: String,
-    },
+    HuggingFace { api_key: String, model_name: String },
     /// Candle local (Rust inference)
     Candle {
         model_path: String,
@@ -59,7 +55,7 @@ impl ModelProvider {
     pub fn is_local(&self) -> bool {
         matches!(
             self,
-            ModelProvider::Ollama { .. } | ModelProvider::Candle { .. }
+            ModelProvider::Ollama { api_key: None, .. } | ModelProvider::Candle { .. }
         )
     }
 
@@ -67,7 +63,10 @@ impl ModelProvider {
     pub fn requires_api_key(&self) -> bool {
         matches!(
             self,
-            ModelProvider::OpenAI { .. }
+            ModelProvider::Ollama {
+                api_key: Some(_),
+                ..
+            } | ModelProvider::OpenAI { .. }
                 | ModelProvider::Anthropic { .. }
                 | ModelProvider::HuggingFace { .. }
         )
@@ -82,6 +81,31 @@ impl ModelProvider {
             ModelProvider::HuggingFace { model_name, .. } => model_name.clone(),
             ModelProvider::Candle { model_path, .. } => model_path.clone(),
             ModelProvider::Custom { name, .. } => name.clone(),
+        }
+    }
+}
+
+impl fmt::Display for ModelProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ModelProvider::Ollama {
+                model_name,
+                api_key,
+                ..
+            } => {
+                if api_key.is_some() {
+                    write!(f, "ollama-cloud/{}", model_name)
+                } else {
+                    write!(f, "ollama/{}", model_name)
+                }
+            }
+            ModelProvider::OpenAI { model_name, .. } => write!(f, "openai/{}", model_name),
+            ModelProvider::Anthropic { model_name, .. } => write!(f, "anthropic/{}", model_name),
+            ModelProvider::HuggingFace { model_name, .. } => {
+                write!(f, "huggingface/{}", model_name)
+            }
+            ModelProvider::Candle { model_path, .. } => write!(f, "candle/{}", model_path),
+            ModelProvider::Custom { name, .. } => write!(f, "custom/{}", name),
         }
     }
 }
@@ -122,6 +146,7 @@ impl ModelConfig {
             provider: ModelProvider::Ollama {
                 base_url: "http://localhost:11434".to_string(),
                 model_name: "nomic-embed-text:latest".to_string(),
+                api_key: None,
             },
             temperature: 0.0, // Embeddings no usan temperatura
             top_p: 1.0,
@@ -139,6 +164,7 @@ impl ModelConfig {
             provider: ModelProvider::Ollama {
                 base_url: "http://localhost:11434".to_string(),
                 model_name: "llama2".to_string(),
+                api_key: None,
             },
             temperature: 0.7,
             top_p: 0.9,
@@ -184,6 +210,23 @@ impl ModelConfig {
         }
     }
 
+    /// Crea una configuración para Anthropic
+    pub fn anthropic_chat(api_key: String, model: &str) -> Self {
+        Self {
+            model_type: ModelType::Chat,
+            provider: ModelProvider::Anthropic {
+                api_key,
+                model_name: model.to_string(),
+            },
+            temperature: 0.7,
+            top_p: 1.0,
+            max_tokens: 2048,
+            timeout_seconds: 60,
+            max_retries: 3,
+            extra_config: HashMap::new(),
+        }
+    }
+
     /// Verifica si la configuración es válida
     pub fn validate(&self) -> Result<()> {
         if self.temperature < 0.0 || self.temperature > 2.0 {
@@ -196,10 +239,11 @@ impl ModelConfig {
 
         if self.provider.requires_api_key() {
             match &self.provider {
-                ModelProvider::OpenAI { api_key, .. }
+                ModelProvider::Ollama { api_key, .. }
+                | ModelProvider::OpenAI { api_key, .. }
                 | ModelProvider::Anthropic { api_key, .. }
                 | ModelProvider::HuggingFace { api_key, .. } => {
-                    if api_key.is_empty() {
+                    if api_key.as_ref().map_or(true, |k| k.is_empty()) {
                         bail!("API key is required for remote provider");
                     }
                 }
@@ -266,9 +310,11 @@ impl BrainConfig {
         let ollama_base_url = std::env::var("OLLAMA_BASE_URL")
             .unwrap_or_else(|_| "http://localhost:11434".to_string());
 
+        let ollama_api_key = std::env::var("OLLAMA_API_KEY").ok();
+
         // Embedding model
-        let embedding_provider = std::env::var("EMBEDDING_PROVIDER")
-            .unwrap_or_else(|_| "ollama".to_string());
+        let embedding_provider =
+            std::env::var("EMBEDDING_PROVIDER").unwrap_or_else(|_| "ollama".to_string());
         let embedding_model_name = std::env::var("EMBEDDING_MODEL")
             .unwrap_or_else(|_| "nomic-embed-text:latest".to_string());
         let embedding_model = match embedding_provider.as_str() {
@@ -277,6 +323,7 @@ impl BrainConfig {
                 provider: ModelProvider::Ollama {
                     base_url: ollama_base_url.clone(),
                     model_name: embedding_model_name,
+                    api_key: ollama_api_key.clone(),
                 },
                 temperature: 0.0,
                 top_p: 1.0,
@@ -289,10 +336,8 @@ impl BrainConfig {
         };
 
         // Chat model
-        let chat_provider = std::env::var("CHAT_PROVIDER")
-            .unwrap_or_else(|_| "ollama".to_string());
-        let chat_model_name = std::env::var("CHAT_MODEL")
-            .unwrap_or_else(|_| "llama2".to_string());
+        let chat_provider = std::env::var("CHAT_PROVIDER").unwrap_or_else(|_| "ollama".to_string());
+        let chat_model_name = std::env::var("CHAT_MODEL").unwrap_or_else(|_| "llama2".to_string());
         let chat_temperature: f32 = std::env::var("CHAT_TEMPERATURE")
             .unwrap_or_else(|_| "0.7".to_string())
             .parse()
@@ -307,6 +352,7 @@ impl BrainConfig {
                 provider: ModelProvider::Ollama {
                     base_url: ollama_base_url.clone(),
                     model_name: chat_model_name,
+                    api_key: ollama_api_key.clone(),
                 },
                 temperature: chat_temperature,
                 top_p: 0.9,
@@ -318,18 +364,25 @@ impl BrainConfig {
             "openai" => {
                 let api_key = std::env::var("OPENAI_API_KEY")
                     .map_err(|_| anyhow::anyhow!("OPENAI_API_KEY required for OpenAI provider"))?;
-                let model = std::env::var("OPENAI_MODEL")
-                    .unwrap_or_else(|_| "gpt-4".to_string());
+                let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4".to_string());
                 ModelConfig::openai_chat(api_key, &model)
+            }
+            "anthropic" => {
+                let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
+                    anyhow::anyhow!("ANTHROPIC_API_KEY required for Anthropic provider")
+                })?;
+                let model = std::env::var("ANTHROPIC_MODEL")
+                    .unwrap_or_else(|_| "claude-3-opus-20240229".to_string());
+                ModelConfig::anthropic_chat(api_key, &model)
             }
             _ => bail!("Unsupported chat provider: {}", chat_provider),
         };
 
         // Summarizer model
-        let summarizer_provider = std::env::var("SUMMARIZER_PROVIDER")
-            .unwrap_or_else(|_| "ollama".to_string());
-        let summarizer_model_name = std::env::var("SUMMARIZER_MODEL")
-            .unwrap_or_else(|_| "llama2".to_string());
+        let summarizer_provider =
+            std::env::var("SUMMARIZER_PROVIDER").unwrap_or_else(|_| "ollama".to_string());
+        let summarizer_model_name =
+            std::env::var("SUMMARIZER_MODEL").unwrap_or_else(|_| "llama2".to_string());
         let summarizer_temperature: f32 = std::env::var("SUMMARIZER_TEMPERATURE")
             .unwrap_or_else(|_| "0.3".to_string())
             .parse()
@@ -344,6 +397,7 @@ impl BrainConfig {
                 provider: ModelProvider::Ollama {
                     base_url: ollama_base_url,
                     model_name: summarizer_model_name,
+                    api_key: ollama_api_key,
                 },
                 temperature: summarizer_temperature,
                 top_p: 0.9,
@@ -352,6 +406,20 @@ impl BrainConfig {
                 max_retries: 2,
                 extra_config: HashMap::new(),
             },
+            "openai" => {
+                let api_key = std::env::var("OPENAI_API_KEY")
+                    .map_err(|_| anyhow::anyhow!("OPENAI_API_KEY required for OpenAI provider"))?;
+                let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4".to_string());
+                ModelConfig::openai_chat(api_key, &model)
+            }
+            "anthropic" => {
+                let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
+                    anyhow::anyhow!("ANTHROPIC_API_KEY required for Anthropic provider")
+                })?;
+                let model = std::env::var("ANTHROPIC_MODEL")
+                    .unwrap_or_else(|_| "claude-3-opus-20240229".to_string());
+                ModelConfig::anthropic_chat(api_key, &model)
+            }
             _ => bail!("Unsupported summarizer provider: {}", summarizer_provider),
         };
 
@@ -373,11 +441,19 @@ mod tests {
 
     #[test]
     fn test_model_provider_is_local() {
-        let ollama = ModelProvider::Ollama {
+        let ollama_local = ModelProvider::Ollama {
             base_url: "http://localhost:11434".to_string(),
             model_name: "llama2".to_string(),
+            api_key: None,
         };
-        assert!(ollama.is_local());
+        assert!(ollama_local.is_local());
+
+        let ollama_cloud = ModelProvider::Ollama {
+            base_url: "https://cloud.ollama.com".to_string(),
+            model_name: "llama2".to_string(),
+            api_key: Some("sk-xxx".to_string()),
+        };
+        assert!(!ollama_cloud.is_local());
 
         let openai = ModelProvider::OpenAI {
             api_key: "test".to_string(),

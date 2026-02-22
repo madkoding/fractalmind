@@ -74,11 +74,16 @@ impl ModelStrategy for FractalModelStrategy {
 pub struct OllamaModelStrategy {
     base_url: String,
     model_name: String,
+    api_key: Option<String>,
 }
 
 impl OllamaModelStrategy {
     pub fn new(base_url: String, model_name: String) -> Self {
-        Self { base_url, model_name }
+        Self { base_url, model_name, api_key: None }
+    }
+
+    pub fn with_api_key(base_url: String, model_name: String, api_key: String) -> Self {
+        Self { base_url, model_name, api_key: Some(api_key) }
     }
 }
 
@@ -89,7 +94,16 @@ impl ModelStrategy for OllamaModelStrategy {
         use super::providers::OllamaEmbedding;
         use super::traits_llm::EmbeddingProvider;
         
-        let provider = OllamaEmbedding::new(self.base_url.clone(), self.model_name.clone(), 768);
+        let provider = if let Some(key) = &self.api_key {
+            OllamaEmbedding::with_api_key(
+                self.base_url.clone(),
+                self.model_name.clone(),
+                768,
+                key.clone(),
+            )
+        } else {
+            OllamaEmbedding::new(self.base_url.clone(), self.model_name.clone(), 768)
+        };
         provider.embed_batch(&texts).await
     }
 
@@ -97,12 +111,22 @@ impl ModelStrategy for OllamaModelStrategy {
         use super::providers::OllamaChat;
         use super::traits_llm::ChatProvider;
         
-        let provider = OllamaChat::new(
-            self.base_url.clone(),
-            self.model_name.clone(),
-            0.7, // temperature
-            2048, // max_tokens
-        );
+        let provider = if let Some(key) = &self.api_key {
+            OllamaChat::with_api_key(
+                self.base_url.clone(),
+                self.model_name.clone(),
+                0.7, // temperature
+                2048, // max_tokens
+                key.clone(),
+            )
+        } else {
+            OllamaChat::new(
+                self.base_url.clone(),
+                self.model_name.clone(),
+                0.7, // temperature
+                2048, // max_tokens
+            )
+        };
         provider.chat(&messages).await
     }
 
@@ -110,12 +134,22 @@ impl ModelStrategy for OllamaModelStrategy {
         use super::providers::OllamaSummarizer;
         use super::traits_llm::SummarizerProvider;
         
-        let provider = OllamaSummarizer::new(
-            self.base_url.clone(),
-            self.model_name.clone(),
-            0.3, // temperature
-            512, // max_tokens
-        );
+        let provider = if let Some(key) = &self.api_key {
+            OllamaSummarizer::with_api_key(
+                self.base_url.clone(),
+                self.model_name.clone(),
+                0.3, // temperature
+                512, // max_tokens
+                key.clone(),
+            )
+        } else {
+            OllamaSummarizer::new(
+                self.base_url.clone(),
+                self.model_name.clone(),
+                0.3, // temperature
+                512, // max_tokens
+            )
+        };
         provider.summarize(text).await
     }
 

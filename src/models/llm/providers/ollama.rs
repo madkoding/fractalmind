@@ -11,12 +11,13 @@ use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use tracing::{debug, warn};
 
-/// Cliente Ollama para embeddings
+/// Cliente Ollama para embeddings (local o cloud con API key)
 pub struct OllamaEmbedding {
     client: Client,
     base_url: String,
     model_name: String,
     dimension: usize,
+    api_key: Option<String>,
 }
 
 impl OllamaEmbedding {
@@ -26,6 +27,17 @@ impl OllamaEmbedding {
             base_url,
             model_name,
             dimension,
+            api_key: None,
+        }
+    }
+
+    pub fn with_api_key(base_url: String, model_name: String, dimension: usize, api_key: String) -> Self {
+        Self {
+            client: Client::new(),
+            base_url,
+            model_name,
+            dimension,
+            api_key: Some(api_key),
         }
     }
 }
@@ -54,10 +66,16 @@ impl EmbeddingProvider for OllamaEmbedding {
 
         debug!("Sending embedding request to Ollama: {}", url);
 
-        let response = self
+        let mut request_builder = self
             .client
             .post(&url)
-            .json(&request)
+            .json(&request);
+
+        if let Some(ref api_key) = self.api_key {
+            request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+        }
+
+        let response = request_builder
             .send()
             .await
             .context("Failed to send embedding request to Ollama")?;
@@ -105,7 +123,13 @@ impl EmbeddingProvider for OllamaEmbedding {
 
     async fn health_check(&self) -> Result<bool> {
         let url = format!("{}/api/tags", self.base_url);
-        match self.client.get(&url).send().await {
+        let mut request_builder = self.client.get(&url);
+        
+        if let Some(ref api_key) = self.api_key {
+            request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+        }
+        
+        match request_builder.send().await {
             Ok(response) => Ok(response.status().is_success()),
             Err(e) => {
                 warn!("Ollama health check failed: {}", e);
@@ -122,6 +146,7 @@ pub struct OllamaChat {
     model_name: String,
     temperature: f32,
     max_tokens: u32,
+    api_key: Option<String>,
 }
 
 impl OllamaChat {
@@ -137,6 +162,24 @@ impl OllamaChat {
             model_name,
             temperature,
             max_tokens,
+            api_key: None,
+        }
+    }
+
+    pub fn with_api_key(
+        base_url: String,
+        model_name: String,
+        temperature: f32,
+        max_tokens: u32,
+        api_key: String,
+    ) -> Self {
+        Self {
+            client: Client::new(),
+            base_url,
+            model_name,
+            temperature,
+            max_tokens,
+            api_key: Some(api_key),
         }
     }
 }
@@ -202,10 +245,16 @@ impl ChatProvider for OllamaChat {
 
         debug!("Sending chat request to Ollama: {}", url);
 
-        let response = self
+        let mut request_builder = self
             .client
             .post(&url)
-            .json(&request)
+            .json(&request);
+
+        if let Some(ref api_key) = self.api_key {
+            request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+        }
+
+        let response = request_builder
             .send()
             .await
             .context("Failed to send chat request to Ollama")?;
@@ -241,7 +290,13 @@ impl ChatProvider for OllamaChat {
 
     async fn health_check(&self) -> Result<bool> {
         let url = format!("{}/api/tags", self.base_url);
-        match self.client.get(&url).send().await {
+        let mut request_builder = self.client.get(&url);
+        
+        if let Some(ref api_key) = self.api_key {
+            request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+        }
+        
+        match request_builder.send().await {
             Ok(response) => Ok(response.status().is_success()),
             Err(e) => {
                 warn!("Ollama health check failed: {}", e);
@@ -258,6 +313,7 @@ pub struct OllamaSummarizer {
     model_name: String,
     temperature: f32,
     max_tokens: u32,
+    api_key: Option<String>,
 }
 
 impl OllamaSummarizer {
@@ -273,6 +329,24 @@ impl OllamaSummarizer {
             model_name,
             temperature,
             max_tokens,
+            api_key: None,
+        }
+    }
+
+    pub fn with_api_key(
+        base_url: String,
+        model_name: String,
+        temperature: f32,
+        max_tokens: u32,
+        api_key: String,
+    ) -> Self {
+        Self {
+            client: Client::new(),
+            base_url,
+            model_name,
+            temperature,
+            max_tokens,
+            api_key: Some(api_key),
         }
     }
 
@@ -318,10 +392,16 @@ impl SummarizerProvider for OllamaSummarizer {
 
         debug!("Sending summarization request to Ollama");
 
-        let response = self
+        let mut request_builder = self
             .client
             .post(&url)
-            .json(&request)
+            .json(&request);
+
+        if let Some(ref api_key) = self.api_key {
+            request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+        }
+
+        let response = request_builder
             .send()
             .await
             .context("Failed to send summarization request to Ollama")?;
@@ -350,7 +430,13 @@ impl SummarizerProvider for OllamaSummarizer {
 
     async fn health_check(&self) -> Result<bool> {
         let url = format!("{}/api/tags", self.base_url);
-        match self.client.get(&url).send().await {
+        let mut request_builder = self.client.get(&url);
+        
+        if let Some(ref api_key) = self.api_key {
+            request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+        }
+        
+        match request_builder.send().await {
             Ok(response) => Ok(response.status().is_success()),
             Err(e) => {
                 warn!("Ollama health check failed: {}", e);

@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
     let brain_config = BrainConfig::from_env()?;
     let brain = match ModelBrain::new(brain_config).await {
         Ok(brain) => {
-            info!("Model Brain initialized successfully");
+            info!("✅ Model Brain initialized successfully");
             let info = brain.get_models_info();
             info!(
                 "  - Embedding model: {} ({}D)",
@@ -83,11 +83,22 @@ async fn main() -> Result<()> {
             brain
         }
         Err(e) => {
-            warn!("Failed to initialize Model Brain: {}. Starting without LLM support.", e);
-            warn!("Make sure Ollama is running: ollama serve");
-            // Crear configuración pero sin verificar salud
-            let config = BrainConfig::from_env().unwrap_or_else(|_| BrainConfig::default_local());
-            ModelBrain::new_without_health_check(config)?
+            error!("❌ Model Brain initialization failed");
+            error!("Error: {}", e);
+            error!("");
+            error!("💡 Troubleshooting steps:");
+            error!("   1. Check if your provider (Ollama/OpenAI/Anthropic) is running");
+            error!("   2. Verify your API keys are set in environment variables");
+            error!("   3. Check your network connection");
+            error!("   4. Review your configuration in .env file");
+            error!("");
+            error!("   Provider configuration:");
+            error!("   - EMBEDDING_PROVIDER: {}", brain_config.embedding_model.provider);
+            error!("   - CHAT_PROVIDER: {}", brain_config.chat_model.provider);
+            error!("   - SUMMARIZER_PROVIDER: {}", brain_config.summarizer_model.provider);
+            error!("");
+            error!("   For local Ollama, run: ollama serve");
+            return Err(anyhow::anyhow!("Failed to initialize Model Brain"));
         }
     };
 

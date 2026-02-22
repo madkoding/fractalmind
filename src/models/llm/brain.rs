@@ -8,7 +8,7 @@ use super::traits_llm::{
 };
 use anyhow::{Context, Result};
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 /// Cerebro del sistema: orquesta todos los modelos LLM
 pub struct ModelBrain {
@@ -34,15 +34,22 @@ impl ModelBrain {
         config.validate()?;
 
         // Inicializar proveedor de embeddings
+        info!("Initializing embedding provider...");
         let embedding_provider = Self::create_embedding_provider(&config.embedding_model)?;
+        info!("Embedding provider initialized: {}", embedding_provider.model_name());
 
         // Inicializar proveedor de chat
+        info!("Initializing chat provider...");
         let chat_provider = Self::create_chat_provider(&config.chat_model)?;
+        info!("Chat provider initialized: {}", chat_provider.model_name());
 
         // Inicializar proveedor de summarizer
+        info!("Initializing summarizer provider...");
         let summarizer_provider = Self::create_summarizer_provider(&config.summarizer_model)?;
+        info!("Summarizer provider initialized: {}", summarizer_provider.model_name());
 
         // Verificar salud de los proveedores
+        info!("Verifying provider health...");
         Self::verify_providers_health(
             &embedding_provider,
             &chat_provider,
@@ -90,14 +97,27 @@ impl ModelBrain {
             ModelProvider::Ollama {
                 base_url,
                 model_name,
+                api_key,
             } => {
                 info!("Creating Ollama embedding provider: {}", model_name);
                 let dimension = Self::infer_embedding_dimension(model_name);
-                Ok(Arc::new(OllamaEmbedding::new(
-                    base_url.clone(),
-                    model_name.clone(),
-                    dimension,
-                )))
+                let provider = if let Some(key) = api_key {
+                    info!("Using Ollama Cloud with API key");
+                    Arc::new(OllamaEmbedding::with_api_key(
+                        base_url.clone(),
+                        model_name.clone(),
+                        dimension,
+                        key.clone(),
+                    ))
+                } else {
+                    info!("Using local Ollama");
+                    Arc::new(OllamaEmbedding::new(
+                        base_url.clone(),
+                        model_name.clone(),
+                        dimension,
+                    ))
+                };
+                Ok(provider)
             }
             ModelProvider::OpenAI {
                 api_key,
@@ -107,6 +127,19 @@ impl ModelBrain {
                 info!("Creating OpenAI embedding provider: {}", model_name);
                 let dimension = Self::infer_embedding_dimension(model_name);
                 Ok(Arc::new(OpenAIEmbedding::new(
+                    api_key.clone(),
+                    model_name.clone(),
+                    dimension,
+                )))
+            }
+            ModelProvider::Anthropic {
+                api_key,
+                model_name,
+                ..
+            } => {
+                info!("Creating Anthropic embedding provider: {}", model_name);
+                let dimension = Self::infer_embedding_dimension(model_name);
+                Ok(Arc::new(AnthropicEmbedding::new(
                     api_key.clone(),
                     model_name.clone(),
                     dimension,
@@ -125,13 +158,61 @@ impl ModelBrain {
             ModelProvider::Ollama {
                 base_url,
                 model_name,
+                api_key,
             } => {
                 info!("Creating Ollama chat provider: {}", model_name);
-                Ok(Arc::new(OllamaChat::new(
-                    base_url.clone(),
+                let provider = if let Some(key) = api_key {
+                    info!("Using Ollama Cloud with API key");
+                    Arc::new(OllamaChat::with_api_key(
+                        base_url.clone(),
+                        model_name.clone(),
+                        config.temperature,
+                        config.max_tokens,
+                        key.clone(),
+                    ))
+                } else {
+                    info!("Using local Ollama");
+                    Arc::new(OllamaChat::new(
+                        base_url.clone(),
+                        model_name.clone(),
+                        config.temperature,
+                        config.max_tokens,
+                    ))
+                };
+                Ok(provider)
+            }
+            ModelProvider::OpenAI {
+                api_key,
+                model_name,
+                ..
+            } => {
+                info!("Creating OpenAI chat provider: {}", model_name);
+                Ok(Arc::new(OpenAIChat::new(
+                    api_key.clone(),
                     model_name.clone(),
                     config.temperature,
                     config.max_tokens,
+                )))
+            }
+            ModelProvider::Anthropic {
+                api_key,
+                model_name,
+                ..
+            } => {
+                info!("Creating Anthropic chat provider: {}", model_name);
+                Ok(Arc::new(AnthropicChat::new(
+                    api_key.clone(),
+                    model_name.clone(),
+                    config.temperature,
+                    config.max_tokens,
+                )))
+            }
+            _ => Err(anyhow::anyhow!(
+                "Unsupported chat provider: {:?}",
+                config.provider
+            )),
+        }
+    }
                 )))
             }
             ModelProvider::OpenAI {
@@ -162,14 +243,28 @@ impl ModelBrain {
             ModelProvider::Ollama {
                 base_url,
                 model_name,
+                api_key,
             } => {
                 info!("Creating Ollama summarizer provider: {}", model_name);
-                Ok(Arc::new(OllamaSummarizer::new(
-                    base_url.clone(),
-                    model_name.clone(),
-                    config.temperature,
-                    config.max_tokens,
-                )))
+                let provider = if let Some(key) = api_key {
+                    info!("Using Ollama Cloud with API key");
+                    Arc::new(OllamaSummarizer::with_api_key(
+                        base_url.clone(),
+                        model_name.clone(),
+                        config.temperature,
+                        config.max_tokens,
+                        key.clone(),
+                    ))
+                } else {
+                    info!("Using local Ollama");
+                    Arc::new(OllamaSummarizer::new(
+                        base_url.clone(),
+                        model_name.clone(),
+                        config.temperature,
+                        config.max_tokens,
+                    ))
+                };
+                Ok(provider)
             }
             _ => Err(anyhow::anyhow!(
                 "Unsupported summarizer provider: {:?}",
@@ -205,35 +300,84 @@ impl ModelBrain {
     ) -> Result<()> {
         info!("Verifying provider health...");
 
-        let embedding_ok = embedding
-            .health_check()
-            .await
-            .context("Embedding provider health check failed")?;
-        let chat_ok = chat
-            .health_check()
-            .await
-            .context("Chat provider health check failed")?;
-        let summarizer_ok = summarizer
-            .health_check()
-            .await
-            .context("Summarizer provider health check failed")?;
+        let embedding_ok = match embedding.health_check().await {
+            Ok(ok) => {
+                if ok {
+                    info!("✅ Embedding provider ({}): healthy", embedding.model_name());
+                } else {
+                    warn!("❌ Embedding provider ({}): health check failed", embedding.model_name());
+                }
+                ok
+            }
+            Err(e) => {
+                error!("❌ Embedding provider health check error: {}", e);
+                false
+            }
+        };
 
-        if !embedding_ok {
-            warn!("Embedding provider health check returned false");
-        }
-        if !chat_ok {
-            warn!("Chat provider health check returned false");
-        }
-        if !summarizer_ok {
-            warn!("Summarizer provider health check returned false");
+        let chat_ok = match chat.health_check().await {
+            Ok(ok) => {
+                if ok {
+                    info!("✅ Chat provider ({}): healthy", chat.model_name());
+                } else {
+                    warn!("❌ Chat provider ({}): health check failed", chat.model_name());
+                }
+                ok
+            }
+            Err(e) => {
+                error!("❌ Chat provider health check error: {}", e);
+                false
+            }
+        };
+
+        let summarizer_ok = match summarizer.health_check().await {
+            Ok(ok) => {
+                if ok {
+                    info!("✅ Summarizer provider ({}): healthy", summarizer.model_name());
+                } else {
+                    warn!("❌ Summarizer provider ({}): health check failed", summarizer.model_name());
+                }
+                ok
+            }
+            Err(e) => {
+                error!("❌ Summarizer provider health check error: {}", e);
+                false
+            }
+        };
+
+        if !embedding_ok || !chat_ok || !summarizer_ok {
+            error!(
+                "❌ Provider health check failed - System cannot operate without working providers"
+            );
+            error!("embedding: {}, chat: {}, summarizer: {}", 
+                   if embedding_ok { "ok" } else { "failed" },
+                   if chat_ok { "ok" } else { "failed" },
+                   if summarizer_ok { "ok" } else { "failed" });
+            
+            let mut error_msg = String::from("Provider configuration error:\n");
+            if !embedding_ok {
+                error_msg.push_str(&format!("- Embedding provider '{}': failed health check\n", embedding.model_name()));
+                error_msg.push_str("  → Ensure the provider is running and accessible\n");
+                error_msg.push_str("  → Check your network connection and provider URL\n");
+                error_msg.push_str("  → Verify your API key if using cloud service\n");
+            }
+            if !chat_ok {
+                error_msg.push_str(&format!("- Chat provider '{}': failed health check\n", chat.model_name()));
+                error_msg.push_str("  → Ensure the provider is running and accessible\n");
+                error_msg.push_str("  → Check your network connection and provider URL\n");
+                error_msg.push_str("  → Verify your API key if using cloud service\n");
+            }
+            if !summarizer_ok {
+                error_msg.push_str(&format!("- Summarizer provider '{}': failed health check\n", summarizer.model_name()));
+                error_msg.push_str("  → Ensure the provider is running and accessible\n");
+                error_msg.push_str("  → Check your network connection and provider URL\n");
+                error_msg.push_str("  → Verify your API key if using cloud service\n");
+            }
+            
+            return Err(anyhow::anyhow!(error_msg.trim().to_string()));
         }
 
-        if embedding_ok && chat_ok && summarizer_ok {
-            info!("All providers are healthy");
-        } else {
-            warn!("Some providers may not be fully operational");
-        }
-
+        info!("✅ All providers are healthy and ready");
         Ok(())
     }
 
