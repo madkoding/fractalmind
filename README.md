@@ -1,8 +1,16 @@
 # FractalMind
 
-[![Release](https://img.shields.io/github/v/release/madkoding/fractalmind?logo=github)](https://github.com/madkoding/fractalmind/releases/tag/v1.0.0) [![CI](https://img.shields.io/github/actions/workflow/status/madkoding/fractalmind/ci.yml?logo=github&label=CI)](https://github.com/madkoding/fractalmind/actions) [![Rust](https://img.shields.io/badge/rust-1.75+-DC2626?logo=rust&logoColor=white)](https://www.rust-lang.org)
+[![Release](https://img.shields.io/github/v/release/madkoding/fractalmind?logo=github)](https://github.com/madkoding/fractalmind/releases/tag/v1.0.0) [![CI](https://img.shields.io/github/actions/workflow/status/madkoding/fractalmind/ci.yml?logo=github&label=CI)](https://github.com/madkoding/fractalmind/actions) [![Rust](https://img.shields.io/badge/rust-1.75+-DC2626?logo=rust&logoColor=white)](https://www.rust-lang.org) [![Ollama Cloud](https://img.shields.io/badge/Ollama_Cloud-Free-10A37F?logo=ollama)](https://ollama.com/cloud)
 
 AI system with evolutionary memory and autonomous learning. Combines graph precision with vector embedding flexibility to create a knowledge engine that mimics human cognition.
+
+## Features
+
+- ✅ **Free Models**: Use Ollama Cloud's nemotron-3-nano (30B) and nomic-embed-text for free
+- ✅ **Local Embeddings**: FastEmbed generates embeddings locally at ingestion time
+- ✅ **Sovereign Data**: All data stored in your own SurrealDB database
+- ✅ **Auto-Learning**: REM phase consolidates memory and learns from web search
+- ✅ **Fractal Graph**: RAPTOR algorithm creates self-similar knowledge hierarchy
 
 ## Architecture
 
@@ -50,6 +58,11 @@ fractalmind/
 - Docker & Docker Compose
 - Minimum 4GB RAM (8GB recommended)
 
+**Free LLM Models**: FractalMind uses Ollama Cloud's free tier models:
+- `nemotron-3-nano` for chat and summarization (30B parameters)
+- `nomic-embed-text:v1.5` for embeddings (768D)
+- **Total cost: $0/month** on the free plan
+
 ## Demo
 
 <!-- Screenshot: Add image here -->
@@ -70,6 +83,11 @@ cd fractalmind
 - **SurrealDB** (port 8000): Database with persistent SSD storage in `./data/surrealdb/`
 - **SearXNG** (port 8080): Local web search for REM phase
 - **FractalMind API** (port 9000): Main API server (default: 9000, configurable via SERVER_PORT)
+
+**Free LLM Models (Ollama Cloud):**
+- `nemotron-3-nano` - 30B parameters, excellent for chat/summarization
+- `nomic-embed-text:v1.5` - 274MB, high-quality embeddings
+- **Cost: $0/month** (free tier)
 
 **Data Persistence:**
 - All database data is stored in `./data/surrealdb/fractalmind.db` on your host machine
@@ -173,6 +191,50 @@ REM_INTERVAL_MINUTES=60
 WEB_SEARCH_PROVIDER=searxng
 WEB_SEARCH_BASE_URL=http://localhost:8080
 WEB_SEARCH_ENABLED=true
+
+# LLM Providers (Ollama Cloud - Economic/Free Models)
+# Use these free models for cost-effective operation:
+LLM_PREFER_LOCAL=false  # Prioritize Ollama Cloud for more capacity
+
+# Embedding Model (Free Tier)
+EMBEDDING_PROVIDER=ollama-cloud
+EMBEDDING_MODEL=nomic-embed-text:v1.5
+
+# Chat Model (Economic - 8B parameters)
+CHAT_PROVIDER=ollama-cloud
+CHAT_MODEL=nemotron-3-nano
+
+# Summarizer Model (Economic - 8B parameters)
+SUMMARIZER_PROVIDER=ollama-cloud
+SUMMARIZER_MODEL=nemotron-3-nano
+
+# Ollama Cloud API Key
+OLLAMA_API_KEY=your_ollama_cloud_api_key_here
+OLLAMA_CLOUD_BASE_URL=https://api.ollama.com
+```
+
+## 🎯 Economic/Free Models (Ollama Cloud)
+
+### Free Tier Features:
+- **Unlimited public models** on the free plan
+- **No credit card required** for basic usage
+- **Pay only for heavy usage** (Pro: $20/mo, Max: $100/mo)
+- **Data privacy**: No storage of prompts or responses
+
+### Recommended Free Models:
+
+| Model | Size | Best For | Cost |
+|-------|------|----------|------|
+| **nomic-embed-text:v1.5** | 274MB | Embeddings | Free |
+| **nemotron-3-nano** | 30B | Chat/Summarizer | Free |
+| **llama3:8b** | 4.7GB | General chat | Free |
+
+### Switching to Local Models:
+If you prefer local inference (sovereignty), set:
+```bash
+LLM_PREFER_LOCAL=true
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_API_KEY=  # Empty for local
 ```
 
 ## Embeddings - How It Works

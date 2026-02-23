@@ -69,6 +69,7 @@ async fn main() -> Result<()> {
     // Inicializar ModelBrain
     info!("Initializing Model Brain...");
     let brain_config = BrainConfig::from_env()?;
+    let brain_config_clone = brain_config.clone();
     let brain = match ModelBrain::new(brain_config).await {
         Ok(brain) => {
             info!("✅ Model Brain initialized successfully");
@@ -93,9 +94,9 @@ async fn main() -> Result<()> {
             error!("   4. Review your configuration in .env file");
             error!("");
             error!("   Provider configuration:");
-            error!("   - EMBEDDING_PROVIDER: {}", brain_config.embedding_model.provider);
-            error!("   - CHAT_PROVIDER: {}", brain_config.chat_model.provider);
-            error!("   - SUMMARIZER_PROVIDER: {}", brain_config.summarizer_model.provider);
+            error!("   - EMBEDDING_PROVIDER: {}", brain_config_clone.embedding_model.provider);
+            error!("   - CHAT_PROVIDER: {}", brain_config_clone.chat_model.provider);
+            error!("   - SUMMARIZER_PROVIDER: {}", brain_config_clone.summarizer_model.provider);
             error!("");
             error!("   For local Ollama, run: ollama serve");
             return Err(anyhow::anyhow!("Failed to initialize Model Brain"));

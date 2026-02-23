@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use super::config::{BrainConfig, ModelConfig, ModelProvider};
-use super::providers::{OllamaChat, OllamaEmbedding, OllamaSummarizer, OpenAIChat, OpenAIEmbedding};
+use super::providers::{OllamaChat, OllamaEmbedding, OllamaSummarizer, OpenAIChat, OpenAIEmbedding, AnthropicChat, AnthropicEmbedding};
 use super::traits_llm::{
     ChatMessage, ChatProvider, ChatResponse, EmbeddingProvider, EmbeddingResponse,
     SummarizerProvider,
@@ -201,27 +201,6 @@ impl ModelBrain {
             } => {
                 info!("Creating Anthropic chat provider: {}", model_name);
                 Ok(Arc::new(AnthropicChat::new(
-                    api_key.clone(),
-                    model_name.clone(),
-                    config.temperature,
-                    config.max_tokens,
-                )))
-            }
-            _ => Err(anyhow::anyhow!(
-                "Unsupported chat provider: {:?}",
-                config.provider
-            )),
-        }
-    }
-                )))
-            }
-            ModelProvider::OpenAI {
-                api_key,
-                model_name,
-                ..
-            } => {
-                info!("Creating OpenAI chat provider: {}", model_name);
-                Ok(Arc::new(OpenAIChat::new(
                     api_key.clone(),
                     model_name.clone(),
                     config.temperature,

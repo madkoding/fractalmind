@@ -182,6 +182,7 @@ impl ModelConfig {
             provider: ModelProvider::Ollama {
                 base_url: "http://localhost:11434".to_string(),
                 model_name: "llama2".to_string(),
+                api_key: None,
             },
             temperature: 0.3, // Más determinista para resúmenes consistentes
             top_p: 0.9,
@@ -239,11 +240,23 @@ impl ModelConfig {
 
         if self.provider.requires_api_key() {
             match &self.provider {
-                ModelProvider::Ollama { api_key, .. }
-                | ModelProvider::OpenAI { api_key, .. }
-                | ModelProvider::Anthropic { api_key, .. }
-                | ModelProvider::HuggingFace { api_key, .. } => {
+                ModelProvider::Ollama { api_key, .. } => {
                     if api_key.as_ref().map_or(true, |k| k.is_empty()) {
+                        bail!("API key is required for remote provider");
+                    }
+                }
+                ModelProvider::OpenAI { api_key, .. } => {
+                    if api_key.is_empty() {
+                        bail!("API key is required for remote provider");
+                    }
+                }
+                ModelProvider::Anthropic { api_key, .. } => {
+                    if api_key.is_empty() {
+                        bail!("API key is required for remote provider");
+                    }
+                }
+                ModelProvider::HuggingFace { api_key, .. } => {
+                    if api_key.is_empty() {
                         bail!("API key is required for remote provider");
                     }
                 }
@@ -317,12 +330,28 @@ impl BrainConfig {
             std::env::var("EMBEDDING_PROVIDER").unwrap_or_else(|_| "ollama".to_string());
         let embedding_model_name = std::env::var("EMBEDDING_MODEL")
             .unwrap_or_else(|_| "nomic-embed-text:latest".to_string());
+        let ollama_cloud_base_url = std::env::var("OLLAMA_CLOUD_BASE_URL")
+            .unwrap_or_else(|_| "https://api.ollama.com".to_string());
         let embedding_model = match embedding_provider.as_str() {
             "ollama" => ModelConfig {
                 model_type: ModelType::Embedding,
                 provider: ModelProvider::Ollama {
                     base_url: ollama_base_url.clone(),
-                    model_name: embedding_model_name,
+                    model_name: embedding_model_name.clone(),
+                    api_key: ollama_api_key.clone(),
+                },
+                temperature: 0.0,
+                top_p: 1.0,
+                max_tokens: 0,
+                timeout_seconds: 30,
+                max_retries: 3,
+                extra_config: HashMap::new(),
+            },
+            "ollama-cloud" => ModelConfig {
+                model_type: ModelType::Embedding,
+                provider: ModelProvider::Ollama {
+                    base_url: ollama_cloud_base_url.clone(),
+                    model_name: embedding_model_name.clone(),
                     api_key: ollama_api_key.clone(),
                 },
                 temperature: 0.0,
@@ -351,7 +380,21 @@ impl BrainConfig {
                 model_type: ModelType::Chat,
                 provider: ModelProvider::Ollama {
                     base_url: ollama_base_url.clone(),
-                    model_name: chat_model_name,
+                    model_name: chat_model_name.clone(),
+                    api_key: ollama_api_key.clone(),
+                },
+                temperature: chat_temperature,
+                top_p: 0.9,
+                max_tokens: chat_max_tokens,
+                timeout_seconds: 60,
+                max_retries: 2,
+                extra_config: HashMap::new(),
+            },
+            "ollama-cloud" => ModelConfig {
+                model_type: ModelType::Chat,
+                provider: ModelProvider::Ollama {
+                    base_url: ollama_cloud_base_url.clone(),
+                    model_name: chat_model_name.clone(),
                     api_key: ollama_api_key.clone(),
                 },
                 temperature: chat_temperature,
@@ -395,31 +438,31 @@ impl BrainConfig {
             "ollama" => ModelConfig {
                 model_type: ModelType::Summarizer,
                 provider: ModelProvider::Ollama {
-                    base_url: ollama_base_url,
-                    model_name: summarizer_model_name,
-                    api_key: ollama_api_key,
+                    base_url: ollama_base_url.clone(),
+                    model_name: summarizer_model_name.clone(),
+                    api_key: ollama_api_key.clone(),
                 },
                 temperature: summarizer_temperature,
                 top_p: 0.9,
                 max_tokens: summarizer_max_tokens,
-                timeout_seconds: 45,
+                timeout_seconds: 60,
                 max_retries: 2,
                 extra_config: HashMap::new(),
             },
-            "openai" => {
-                let api_key = std::env::var("OPENAI_API_KEY")
-                    .map_err(|_| anyhow::anyhow!("OPENAI_API_KEY required for OpenAI provider"))?;
-                let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4".to_string());
-                ModelConfig::openai_chat(api_key, &model)
-            }
-            "anthropic" => {
-                let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
-                    anyhow::anyhow!("ANTHROPIC_API_KEY required for Anthropic provider")
-                })?;
-                let model = std::env::var("ANTHROPIC_MODEL")
-                    .unwrap_or_else(|_| "claude-3-opus-20240229".to_string());
-                ModelConfig::anthropic_chat(api_key, &model)
-            }
+            "ollama-cloud" => ModelConfig {
+                model_type: ModelType::Summarizer,
+                provider: ModelProvider::Ollama {
+                    base_url: ollama_cloud_base_url.clone(),
+                    model_name: summarizer_model_name.clone(),
+                    api_key: ollama_api_key.clone(),
+                },
+                temperature: summarizer_temperature,
+                top_p: 0.9,
+                max_tokens: summarizer_max_tokens,
+                timeout_seconds: 60,
+                max_retries: 2,
+                extra_config: HashMap::new(),
+            },
             _ => bail!("Unsupported summarizer provider: {}", summarizer_provider),
         };
 
