@@ -52,7 +52,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Configuration
 dotenv = "0.15"
-config = "0.14"
+config = "0.15"
 
 # Error Handling
 anyhow = "1.0"
