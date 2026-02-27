@@ -33,7 +33,7 @@ fastembed = { version = "3.11", default-features = false, features = ["online"],
 ndarray = "0.16"
 
 # Graph Algorithms
-petgraph = "0.6"
+petgraph = "0.8"
 
 # Cache
 lru = "0.12"
