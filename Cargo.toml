@@ -72,7 +72,7 @@ pdf-extract = { version = "0.7", optional = true }
 
 # Clustering algorithms para RAPTOR
 linfa = { version = "0.7", optional = true }
-linfa-clustering = { version = "0.7", optional = true }
+linfa-clustering = { version = "0.8", optional = true }
 
 # GGUF model parsing
 byteorder = "1.5"
