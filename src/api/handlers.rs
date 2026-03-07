@@ -21,7 +21,8 @@ use crate::db::queries::{NodeRepository, EdgeRepository};
 use crate::cache::{EmbeddingCache, NodeCache};
 use crate::db::connection::DatabaseConnection;
 use crate::models::llm::ModelBrain;
-use crate::models::{EmbeddingVector, FractalNode, NodeMetadata};
+use crate::models::{EmbeddingVector, FractalNode, FractalEdge, NodeMetadata};
+use surrealdb::sql::Thing;
 
 use super::error::{ApiError, ApiResult};
 use super::progress::ProgressTracker;
@@ -519,14 +520,8 @@ pub async fn remember(
         return Err(ApiError::ValidationError("Content cannot be empty".to_string()));
     }
 
+    let start = Instant::now();
     let state = state.read().await;
-
-    // Generate embedding
-    let _ = state
-        .brain
-        .embed(&request.content)
-        .await
-        .map_err(|e| ApiError::EmbeddingError(e.to_string()))?;
 
     // Determine namespace (personal or context-based)
     let namespace = request
@@ -537,16 +532,112 @@ pub async fn remember(
 
     debug!("Storing episodic memory in namespace: {}", namespace);
 
-    // TODO: Create episodic memory node
-    // TODO: Link to related nodes if provided
-    // TODO: Link to context if provided
+    // Check embedding cache first
+    let embedding_vector = if let Some(cached) = state.embedding_cache.get(&request.content) {
+        debug!("Using cached embedding for episodic memory");
+        cached.clone()
+    } else {
+        // Generate embedding
+        let embedding_response = state
+            .brain
+            .embed(&request.content)
+            .await
+            .map_err(|e| ApiError::EmbeddingError(e.to_string()))?;
 
-    let node_id = Uuid::new_v4().to_string();
+        let vector = EmbeddingVector::new(
+            embedding_response.embedding.clone(),
+            crate::models::EmbeddingModel::NomicEmbedTextV15,
+        );
+        
+        // Cache the embedding
+        state.embedding_cache.put(&request.content, vector.clone());
+        vector
+    };
+
+    // Create metadata for episodic memory
+    let mut metadata = NodeMetadata::default();
+    metadata.source = "episodic_memory".to_string();
+    metadata.source_type = crate::models::SourceType::Text;
+    metadata.language = request.language.clone().unwrap_or_else(|| "en".to_string());
+    metadata.tags = vec!["episodic".to_string(), "memory".to_string()];
+    
+    if let Some(context) = &request.context {
+        metadata.tags.push(format!("context:{}", context));
+    }
+
+    // Create episodic memory node
+    let node = FractalNode::new_leaf(
+        request.content.clone(),
+        embedding_vector,
+        namespace.clone(),
+        None,
+        metadata,
+    );
+
+    // Save node to database
+    let node_repo = NodeRepository::new(&state.db);
+    let node_id = node_repo
+        .create(&node)
+        .await
+        .map_err(|e| ApiError::DatabaseError(format!("Failed to create memory node: {}", e)))?
+        .to_string();
+
+    debug!("Episodic memory created with ID: {}", node_id);
+
+    // Link to related nodes if provided
+    let edges_created = if let Some(related_node_ids) = &request.related_to {
+        let edge_repo = EdgeRepository::new(&state.db);
+        let mut edges_count = 0;
+
+        for related_id in related_node_ids {
+            if let Ok(related_thing) = parse_thing_from_string(related_id) {
+                // Validate that the related node exists before creating edge
+                match node_repo.get_by_id(&related_thing).await {
+                    Ok(Some(_related_node)) => {
+                        // Node exists, create the edge
+                        let edge = FractalEdge::new_semantic(
+                            Thing::from(("nodes".to_string(), node_id.clone())),
+                            related_thing,
+                            0.8,
+                        );
+
+                        if edge_repo.create(&edge).await.is_ok() {
+                            edges_count += 1;
+                        }
+                    }
+                    Ok(None) => {
+                        // Node doesn't exist, skip and log warning
+                        warn!("Related node not found: {}, skipping link", related_id);
+                    }
+                    Err(e) => {
+                        // Error fetching node, log and skip
+                        warn!("Failed to fetch related node {}: {}", related_id, e);
+                    }
+                }
+            }
+        }
+
+        edges_count
+    } else {
+        0
+    };
+
+    info!(
+        "Episodic memory stored: namespace={}, node_id={}, related_links={}",
+        namespace, node_id, edges_created
+    );
 
     Ok(Json(RememberResponse {
         success: true,
         node_id: Some(node_id),
-        message: "Memory stored successfully".to_string(),
+        message: format!(
+            "Memory stored successfully{}",
+            if edges_created > 0 {
+                format!(" with {} links to related memories", edges_created)
+            } else {
+                String::new()
+            }
+        ),
     }))
 }
 
@@ -815,45 +906,97 @@ pub async fn sync_rem(
 
 /// Update an existing memory node
 pub async fn memory_update(
-    State(_state): State<SharedState>,
+    State(state): State<SharedState>,
     Json(request): Json<MemoryUpdateRequest>,
 ) -> ApiResult<Json<MemoryUpdateResponse>> {
     if request.node_id.trim().is_empty() {
         return Err(ApiError::ValidationError("Node ID cannot be empty".to_string()));
     }
 
+    let state = state.read().await;
+    let node_repo = NodeRepository::new(&state.db);
+    
+    let thing = parse_thing_from_string(&request.node_id)
+        .ok_or_else(|| ApiError::ValidationError(format!("Invalid node ID format: {}", request.node_id)))?;
+
+    let mut node = node_repo
+        .get_by_id(&thing)
+        .await
+        .map_err(|e| ApiError::DatabaseError(format!("Failed to fetch node: {}", e)))?
+        .ok_or_else(|| ApiError::NotFound(format!("Node not found: {}", request.node_id)))?;
+
     let mut updated_fields = Vec::new();
 
-    // TODO: Fetch existing node from database
-    // TODO: Validate node exists
+    if let Some(content) = &request.content {
+        node.content = content.clone();
+        
+        if let Some(embedding_text) = request.regenerate_embedding {
+            let embedding_response = state
+                .brain
+                .embed(&node.content)
+                .await
+                .map_err(|e| ApiError::EmbeddingError(format!("Failed to regenerate embedding: {}", e)))?;
 
-    if request.content.is_some() {
-        // TODO: Update content and regenerate embedding
+            node.embedding = EmbeddingVector::new(
+                embedding_response.embedding.clone(),
+                crate::models::EmbeddingModel::NomicEmbedTextV15,
+            );
+            
+            state.embedding_cache.put(&node.content, node.embedding.clone());
+        }
+        
         updated_fields.push("content".to_string());
+        if request.regenerate_embedding == Some(true) {
+            updated_fields.push("embedding".to_string());
+        }
     }
 
-    if request.status.is_some() {
-        // TODO: Update status
+    if let Some(status) = &request.status {
+        node.status = status.clone();
         updated_fields.push("status".to_string());
     }
 
-    if request.tags.is_some() {
-        // TODO: Update tags
+    if let Some(tags) = &request.tags {
+        node.metadata.tags = tags.clone();
         updated_fields.push("tags".to_string());
     }
 
+    if let Some(source) = &request.source {
+        node.metadata.source = source.clone();
+        updated_fields.push("source".to_string());
+    }
+
     if request.deprecated == Some(true) {
-        // TODO: Mark as deprecated
+        node.metadata.deprecated = true;
         updated_fields.push("deprecated".to_string());
     }
 
-    // TODO: Save updated node to database
+    if let Some(metadata) = &request.metadata {
+        if let Some(lang) = &metadata.language {
+            node.metadata.language = lang.clone();
+            updated_fields.push("language".to_string());
+        }
+        if let Some(access_count) = metadata.access_count {
+            node.metadata.access_count = access_count;
+            updated_fields.push("access_count".to_string());
+        }
+    }
+
+    node_repo
+        .update(&thing, &node)
+        .await
+        .map_err(|e| ApiError::DatabaseError(format!("Failed to update node: {}", e)))?;
+
+    info!(
+        "Memory node updated: node_id={}, fields={:?}",
+        request.node_id, updated_fields
+    );
 
     Ok(Json(MemoryUpdateResponse {
         success: true,
         node_id: request.node_id.clone(),
         updated_fields,
-        message: "Memory node updated successfully".to_string(),
+        message: format!("Memory node updated successfully ({} fields)", updated_fields.len()),
     }))
 }
 
@@ -1119,7 +1262,7 @@ async fn navigate_with_sssp(
 }
 
 /// Parse a string ID into a SurrealDB Thing
-fn parse_thing_from_string(id: &str) -> Option<surrealdb::sql::Thing> {
+pub fn parse_thing_from_string(id: &str) -> Option<surrealdb::sql::Thing> {
     if id.contains(':') {
         let parts: Vec<&str> = id.split(':').collect();
         if parts.len() == 2 {
@@ -1209,11 +1352,27 @@ pub async fn stats(State(state): State<SharedState>) -> Json<StatsResponse> {
 
     let cache_metrics = state.node_cache.metrics();
     let llm_info = state.brain.get_models_info();
+    
+    let node_repo = NodeRepository::new(&state.db);
+    let edge_repo = EdgeRepository::new(&state.db);
+    
+    let total_nodes = node_repo.count_all().await.unwrap_or(0) as usize;
+    let total_edges = edge_repo.count_all_edges().await.unwrap_or(0) as usize;
+    let namespaces_info = node_repo.get_namespaces().await.unwrap_or_default();
+    
+    let namespaces: Vec<NamespaceStats> = namespaces_info
+        .into_iter()
+        .map(|ns| NamespaceStats {
+            name: ns.name,
+            node_count: ns.node_count as usize,
+            edge_count: ns.edge_count as usize,
+        })
+        .collect();
 
     Json(StatsResponse {
-        total_nodes: 0,    // TODO: Get from database
-        total_edges: 0,    // TODO: Get from database
-        namespaces: vec![], // TODO: Get namespace stats
+        total_nodes,
+        total_edges,
+        namespaces,
         cache_metrics: CacheStats {
             size: cache_metrics.size,
             capacity: state.node_cache.capacity(),
@@ -1233,6 +1392,7 @@ pub async fn stats(State(state): State<SharedState>) -> Json<StatsResponse> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json;
 
     #[test]
     fn test_app_state_type() {
@@ -1250,6 +1410,78 @@ mod tests {
         let plain = "single-tag";
         // parsing plain as JSON should fail, so we treat it as single tag
         assert!(serde_json::from_str::<Vec<String>>(plain).is_err());
+    }
+
+    #[test]
+    fn test_memory_update_request_deserialize() {
+        let json = r#"{
+            "node_id": "nodes:123",
+            "content": "updated content",
+            "status": "complete",
+            "tags": ["tag1", "tag2"],
+            "deprecated": false,
+            "regenerate_embedding": true,
+            "source": "test_source",
+            "metadata": {
+                "language": "es",
+                "access_count": 42
+            }
+        }"#;
+
+        let request: MemoryUpdateRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.node_id, "nodes:123");
+        assert_eq!(request.content, Some("updated content".to_string()));
+        assert_eq!(request.status, Some("complete".to_string()));
+        assert!(request.regenerate_embedding == Some(true));
+        assert!(request.metadata.is_some());
+        assert_eq!(request.metadata.as_ref().unwrap().language, Some("es".to_string()));
+    }
+
+    #[test]
+    fn test_memory_update_request_minimal() {
+        let json = r#"{
+            "node_id": "nodes:456",
+            "content": "simple update"
+        }"#;
+
+        let request: MemoryUpdateRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.node_id, "nodes:456");
+        assert_eq!(request.content, Some("simple update".to_string()));
+        assert!(request.status.is_none());
+        assert!(request.tags.is_none());
+        assert!(request.metadata.is_none());
+    }
+
+    #[test]
+    fn test_remember_request_with_related() {
+        let json = r#"{
+            "content": "This is a memory",
+            "user_id": "alice",
+            "language": "en",
+            "related_to": ["nodes:111", "nodes:222"],
+            "context": "test_context"
+        }"#;
+
+        let request: RememberRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.content, "This is a memory");
+        assert_eq!(request.user_id, Some("alice".to_string()));
+        assert!(request.related_to.is_some());
+        assert_eq!(request.related_to.as_ref().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_parse_thing_from_string_formats() {
+        // Test table:id format
+        let thing1 = parse_thing_from_string("nodes:123");
+        assert!(thing1.is_some());
+
+        // Test plain id format (should default to nodes table)
+        let thing2 = parse_thing_from_string("456");
+        assert!(thing2.is_some());
+
+        // Test empty string
+        let thing3 = parse_thing_from_string("");
+        assert!(thing3.is_some()); // defaults to nodes:
     }
 }
 

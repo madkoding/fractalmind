@@ -77,7 +77,7 @@ pub struct IngestFileResponse {
 // ============================================================================
 
 /// Request to store episodic memory
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct RememberRequest {
     /// The content to remember
     pub content: String,
@@ -86,10 +86,14 @@ pub struct RememberRequest {
     pub context: Option<String>,
 
     /// Related node IDs
-    pub related_nodes: Option<Vec<String>>,
+    #[serde(alias = "related_nodes")]
+    pub related_to: Option<Vec<String>>,
 
     /// User identifier for personal namespace
     pub user_id: Option<String>,
+
+    /// Language preference
+    pub language: Option<String>,
 }
 
 /// Response from remember operation
@@ -189,7 +193,7 @@ pub struct SyncRemResponse {
 // ============================================================================
 
 /// Request to update an existing memory node
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct MemoryUpdateRequest {
     /// ID of the node to update
     pub node_id: String,
@@ -205,6 +209,22 @@ pub struct MemoryUpdateRequest {
 
     /// Mark as deprecated
     pub deprecated: Option<bool>,
+
+    /// Whether to regenerate embedding when content changes
+    pub regenerate_embedding: Option<bool>,
+
+    /// New source
+    pub source: Option<String>,
+
+    /// Additional metadata updates
+    pub metadata: Option<MetadataUpdate>,
+}
+
+/// Metadata update fields
+#[derive(Deserialize, Debug)]
+pub struct MetadataUpdate {
+    pub language: Option<String>,
+    pub access_count: Option<u64>,
 }
 
 /// Response from memory update operation
