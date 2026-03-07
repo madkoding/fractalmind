@@ -89,6 +89,62 @@ impl ModelBrain {
         })
     }
 
+    /// Crea un ModelBrain básico solo con Ollama para tests
+    pub fn with_ollama_only(base_url: String, embedding_model: String) -> Result<Self> {
+        use crate::models::llm::config::{BrainConfig, ModelConfig, ModelProvider};
+        
+        let config = BrainConfig {
+            embedding_model: ModelConfig {
+                provider: ModelProvider::Ollama {
+                    base_url: base_url.clone(),
+                    model_name: embedding_model.clone(),
+                    api_key: None,
+                },
+            },
+            chat_model: ModelConfig {
+                provider: ModelProvider::Ollama {
+                    base_url: base_url.clone(),
+                    model_name: "llama2".to_string(),
+                    api_key: None,
+                },
+            },
+            summarizer_model: ModelConfig {
+                provider: ModelProvider::Ollama {
+                    base_url: base_url.clone(),
+                    model_name: "llama2".to_string(),
+                    api_key: None,
+                },
+            },
+        };
+
+        let embedding_provider = Arc::new(OllamaEmbedding::new(
+            base_url.clone(),
+            embedding_model,
+            768,
+        ));
+
+        let chat_provider = Arc::new(OllamaChat::new(
+            base_url.clone(),
+            "llama2".to_string(),
+            0.7,
+            2048,
+        ));
+
+        let summarizer_provider = Arc::new(OllamaSummarizer::new(
+            base_url,
+            "llama2".to_string(),
+            0.3,
+            512,
+        ));
+
+        Ok(Self {
+            embedding_provider,
+            chat_provider,
+            summarizer_provider,
+            config,
+        })
+    }
+
     /// Crea un proveedor de embeddings desde configuración
     fn create_embedding_provider(
         config: &ModelConfig,
