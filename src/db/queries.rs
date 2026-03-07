@@ -6,6 +6,14 @@ use crate::models::llm::fractal_model::{FractalModel, FractalModelStatus, Fracta
 use anyhow::{Context, Result};
 use surrealdb::sql::Thing;
 
+/// Información de namespace
+#[derive(Debug, Clone)]
+pub struct NamespaceInfo {
+    pub name: String,
+    pub node_count: u64,
+    pub edge_count: u64,
+}
+
 /// Repositorio de nodos
 pub struct NodeRepository<'a> {
     db: &'a DatabaseConnection,
@@ -168,6 +176,159 @@ impl<'a> NodeRepository<'a> {
         let nodes: Vec<FractalNode> = result.take(0)?;
         Ok(nodes)
     }
+
+    /// Obtiene todos los nodos
+    pub async fn get_all(&self) -> Result<Vec<FractalNode>> {
+        let query = "SELECT * FROM nodes";
+        let mut result = self
+            .db
+            .query(query)
+            .await
+            .context("Failed to get all nodes")?;
+
+        let nodes: Vec<FractalNode> = result.take(0)?;
+        Ok(nodes)
+    }
+
+    /// Cuenta todos los nodos
+    pub async fn count_all(&self) -> Result<u64> {
+        let query = "SELECT count() as count FROM nodes GROUP ALL";
+        let mut result = self
+            .db
+            .query(query)
+            .await
+            .context("Failed to count all nodes")?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u64,
+        }
+
+        let counts: Vec<CountResult> = result.take(0)?;
+        Ok(counts.first().map(|c| c.count).unwrap_or(0))
+    }
+
+    /// Cuenta nodos por namespace
+    pub async fn count_by_namespace(&self, namespace: &str) -> Result<u64> {
+        let query = "SELECT count() as count FROM nodes WHERE namespace = $namespace GROUP ALL";
+        let mut result = self
+            .db
+            .query(query)
+            .bind(("namespace", namespace))
+            .await
+            .context("Failed to count nodes by namespace")?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u64,
+        }
+
+        let counts: Vec<CountResult> = result.take(0)?;
+        Ok(counts.first().map(|c| c.count).unwrap_or(0))
+    }
+
+    /// Cuenta todas las aristas
+    pub async fn count_all_edges(&self) -> Result<u64> {
+        let query = "SELECT count() as count FROM edges GROUP ALL";
+        let mut result = self
+            .db
+            .query(query)
+            .await
+            .context("Failed to count edges")?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u64,
+        }
+
+        let counts: Vec<CountResult> = result.take(0)?;
+        Ok(counts.first().map(|c| c.count).unwrap_or(0))
+    }
+
+    /// Obtiene todos los namespaces únicos
+    pub async fn get_namespaces(&self) -> Result<Vec<NamespaceInfo>> {
+        let query = r#"
+            SELECT namespace, count() as node_count 
+            FROM nodes 
+            GROUP BY namespace
+        "#;
+
+        let mut result = self
+            .db
+            .query(query)
+            .await
+            .context("Failed to get namespaces")?;
+
+        #[derive(serde::Deserialize)]
+        struct NamespaceGroup {
+            namespace: String,
+            node_count: u64,
+        }
+
+        let groups: Vec<NamespaceGroup> = result.take(0)?;
+        
+        let mut namespaces = Vec::new();
+        for group in groups {
+            let edge_count = self.count_edges_by_namespace(&group.namespace).await.unwrap_or(0);
+            namespaces.push(NamespaceInfo {
+                name: group.namespace,
+                node_count: group.node_count,
+                edge_count,
+            });
+        }
+        
+        Ok(namespaces)
+    }
+
+    /// Cuenta aristas por namespace (basado en el namespace de los nodos origen)
+    pub async fn count_edges_by_namespace(&self, namespace: &str) -> Result<u64> {
+        let query = r#"
+            SELECT count() as count FROM edges 
+            WHERE from IN (SELECT id FROM nodes WHERE namespace = $namespace)
+            GROUP ALL
+        "#;
+
+        let mut result = self
+            .db
+            .query(query)
+            .bind(("namespace", namespace))
+            .await
+            .context("Failed to count edges by namespace")?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u64,
+        }
+
+        let counts: Vec<CountResult> = result.take(0)?;
+        Ok(counts.first().map(|c| c.count).unwrap_or(0))
+    }
+
+    /// Obtiene nodos por estado
+    pub async fn count_by_status(&self, status: NodeStatus) -> Result<u64> {
+        let status_str = match status {
+            NodeStatus::Complete => "complete",
+            NodeStatus::Incomplete => "incomplete",
+            NodeStatus::Pending => "pending",
+            NodeStatus::Deprecated => "deprecated",
+        };
+
+        let query = "SELECT count() as count FROM nodes WHERE status = $status GROUP ALL";
+        let mut result = self
+            .db
+            .query(query)
+            .bind(("status", status_str))
+            .await
+            .context("Failed to count nodes by status")?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u64,
+        }
+
+        let counts: Vec<CountResult> = result.take(0)?;
+        Ok(counts.first().map(|c| c.count).unwrap_or(0))
+    }
 }
 
 /// Repositorio de aristas
@@ -242,6 +403,43 @@ impl<'a> EdgeRepository<'a> {
             .context("Failed to delete edge")?;
 
         Ok(())
+    }
+
+    /// Cuenta todas las aristas
+    pub async fn count_all_edges(&self) -> Result<u64> {
+        let query = "SELECT count() as count FROM edges GROUP ALL";
+        let mut result = self
+            .db
+            .query(query)
+            .await
+            .context("Failed to count edges")?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u64,
+        }
+
+        let counts: Vec<CountResult> = result.take(0)?;
+        Ok(counts.first().map(|c| c.count).unwrap_or(0))
+    }
+
+    /// Cuenta aristas por tipo
+    pub async fn count_by_type(&self, edge_type: &str) -> Result<u64> {
+        let query = "SELECT count() as count FROM edges WHERE type = $type GROUP ALL";
+        let mut result = self
+            .db
+            .query(query)
+            .bind(("type", edge_type))
+            .await
+            .context("Failed to count edges by type")?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u64,
+        }
+
+        let counts: Vec<CountResult> = result.take(0)?;
+        Ok(counts.first().map(|c| c.count).unwrap_or(0))
     }
 }
 
