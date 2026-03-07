@@ -68,7 +68,7 @@ chrono = { version = "0.4", features = ["serde"] }
 tesseract = { version = "0.14", optional = true }
 
 # PDF parsing
-pdf-extract = { version = "0.7", optional = true }
+pdf-extract = { version = "0.10", optional = true }
 
 # Clustering algorithms para RAPTOR
 linfa = { version = "0.7", optional = true }
