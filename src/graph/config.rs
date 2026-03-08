@@ -168,6 +168,7 @@ impl SsspConfig {
 }
 
 /// Configuration errors.
+#[expect(clippy::enum_variant_names)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigError {
     InvalidMinClusterSize,

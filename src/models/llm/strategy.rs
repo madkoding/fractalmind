@@ -18,6 +18,7 @@ use crate::graph::{GraphNode, Sssp};
 // ============================================================================
 
 /// Configuración para FractalModelStrategy
+#[expect(dead_code)]
 #[derive(Debug, Clone)]
 pub struct FractalModelStrategyConfig {
     /// Namespace por defecto para búsquedas
@@ -56,6 +57,7 @@ impl Default for FractalModelStrategyConfig {
     }
 }
 
+#[expect(dead_code)]
 impl FractalModelStrategyConfig {
     pub fn new() -> Self {
         Self::default()
@@ -120,6 +122,7 @@ impl FractalModelStrategyConfig {
 // ============================================================================
 
 /// Estrategia para usar modelos (Fractal vs Ollama)
+#[expect(dead_code)]
 #[async_trait]
 pub trait ModelStrategy: Send + Sync {
     /// Genera embeddings usando la estrategia (batch)
@@ -140,12 +143,14 @@ pub trait ModelStrategy: Send + Sync {
 // ============================================================================
 
 /// Estrategia que usa modelos fractales almacenados con navegación por grafo
+#[expect(dead_code)]
 pub struct FractalModelStrategy {
     model_id: String,
     db: Arc<RwLock<DatabaseConnection>>,
     config: FractalModelStrategyConfig,
 }
 
+#[expect(dead_code)]
 impl FractalModelStrategy {
     pub fn new(model_id: String, db: DatabaseConnection) -> Self {
         Self {
@@ -263,10 +268,12 @@ impl FractalModelStrategy {
             .collect())
     }
 
+    #[expect(dead_code)]
     fn get_default_namespace(&self) -> &str {
         &self.config.default_namespace
     }
 
+    #[expect(dead_code)]
     async fn generate_summary_with_context(&self, text: &str) -> Result<String> {
         use super::providers::OllamaSummarizer;
         use super::traits_llm::SummarizerProvider;
@@ -393,6 +400,7 @@ impl ModelStrategy for FractalModelStrategy {
 // ============================================================================
 
 /// Estrategia que usa Ollama directamente
+#[expect(dead_code)]
 pub struct OllamaModelStrategy {
     base_url: String,
     model_name: String,
@@ -401,6 +409,7 @@ pub struct OllamaModelStrategy {
     max_tokens: u32,
 }
 
+#[expect(dead_code)]
 impl OllamaModelStrategy {
     pub fn new(base_url: String, model_name: String) -> Self {
         Self {
