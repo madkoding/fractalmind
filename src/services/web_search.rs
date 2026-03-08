@@ -71,7 +71,10 @@ impl SearchResponse {
 
     /// Gets results above a score threshold.
     pub fn results_above_threshold(&self, threshold: f32) -> Vec<&SearchResult> {
-        self.results.iter().filter(|r| r.score >= threshold).collect()
+        self.results
+            .iter()
+            .filter(|r| r.score >= threshold)
+            .collect()
     }
 
     /// Combines snippets from all results.
@@ -305,7 +308,7 @@ impl WebSearchProvider for SearxngProvider {
             .enumerate()
             .map(|(i, r)| {
                 // Calculate score: use SearXNG score if available, otherwise decay by position
-                let score = r.score.unwrap_or_else(|| 0.95 - (i as f32 * 0.05)).clamp(0.0, 1.0);
+                let score = r.score.unwrap_or(0.95 - (i as f32 * 0.05)).clamp(0.0, 1.0);
 
                 SearchResult {
                     title: r.title,
@@ -468,8 +471,8 @@ mod tests {
 
     #[test]
     fn test_factory_searxng() {
-        let config = WebSearchConfig::new("searxng")
-            .with_base_url("http://localhost:8080".to_string());
+        let config =
+            WebSearchConfig::new("searxng").with_base_url("http://localhost:8080".to_string());
         let provider = WebSearchFactory::create(config);
         assert_eq!(provider.provider_name(), "searxng");
     }

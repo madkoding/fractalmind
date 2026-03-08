@@ -34,49 +34,49 @@ impl UploadStatus {
 pub struct UploadSession {
     /// Unique identifier for this upload session
     pub upload_id: String,
-    
+
     /// Original filename
     pub filename: String,
-    
+
     /// Total file size in bytes
     pub total_size: u64,
-    
+
     /// Size of each chunk in bytes
     pub chunk_size: u64,
-    
+
     /// Total number of chunks
     pub total_chunks: u64,
-    
+
     /// Set of chunk indices that have been received
     pub chunks_received: Vec<u64>,
-    
+
     /// Current status of the upload
     pub status: UploadStatus,
-    
+
     /// Path to the temporary upload file
     pub temp_path: String,
-    
+
     /// Model ID (set after finalization)
     pub model_id: Option<String>,
-    
+
     /// Upload progress (0-100)
     pub upload_progress: f32,
-    
+
     /// Conversion progress (0-100)
     pub conversion_progress: f32,
-    
+
     /// Current conversion phase
     pub current_phase: Option<String>,
-    
+
     /// Upload speed in MB/s (calculated from recent chunks)
     pub upload_speed_mbps: Option<f32>,
-    
+
     /// Timestamp of last chunk received
     pub last_chunk_at: Option<DateTime<Utc>>,
-    
+
     /// Creation timestamp
     pub created_at: DateTime<Utc>,
-    
+
     /// Last update timestamp
     pub updated_at: DateTime<Utc>,
 }
@@ -85,7 +85,7 @@ impl UploadSession {
     /// Create a new upload session
     pub fn new(filename: String, total_size: u64, chunk_size: u64) -> Self {
         let upload_id = format!("upload_{}", Uuid::new_v4().to_string().replace("-", ""));
-        let total_chunks = (total_size + chunk_size - 1) / chunk_size;
+        let total_chunks = total_size.div_ceil(chunk_size);
         let temp_path = format!("/var/tmp/fractalmind_uploads/{}.part", upload_id);
         let now = Utc::now();
 
@@ -115,8 +115,9 @@ impl UploadSession {
             self.chunks_received.push(chunk_index);
             self.chunks_received.sort();
         }
-        
-        self.upload_progress = (self.chunks_received.len() as f32 / self.total_chunks as f32) * 100.0;
+
+        self.upload_progress =
+            (self.chunks_received.len() as f32 / self.total_chunks as f32) * 100.0;
         self.last_chunk_at = Some(Utc::now());
         self.updated_at = Utc::now();
     }
@@ -181,7 +182,7 @@ mod tests {
         let mut session = UploadSession::new("test.gguf".to_string(), 1000, 100);
         session.add_chunk(0);
         session.add_chunk(1);
-        
+
         assert_eq!(session.chunks_received.len(), 2);
         assert_eq!(session.upload_progress, 20.0);
     }
@@ -190,11 +191,11 @@ mod tests {
     fn test_is_complete() {
         let mut session = UploadSession::new("test.gguf".to_string(), 1000, 100);
         assert!(!session.is_complete());
-        
+
         for i in 0..10 {
             session.add_chunk(i);
         }
-        
+
         assert!(session.is_complete());
         assert_eq!(session.upload_progress, 100.0);
     }
@@ -205,7 +206,7 @@ mod tests {
         session.add_chunk(0);
         session.add_chunk(2);
         session.add_chunk(4);
-        
+
         let missing = session.missing_chunks();
         assert_eq!(missing, vec![1, 3, 5, 6, 7, 8, 9]);
     }

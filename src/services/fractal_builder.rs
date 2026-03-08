@@ -8,13 +8,13 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use surrealdb::sql::Thing;
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 use crate::db::connection::DatabaseConnection;
-use crate::db::queries::{NodeRepository, EdgeRepository};
+use crate::db::queries::{EdgeRepository, NodeRepository};
 use crate::graph::{Raptor, RaptorConfig, RaptorNode, RaptorTree, RaptorTreeNode};
-use crate::models::{FractalNode, FractalEdge, NodeMetadata, SourceType};
 use crate::models::llm::ModelBrain;
+use crate::models::{FractalEdge, FractalNode, NodeMetadata, SourceType};
 
 /// Configuration for fractal building
 #[derive(Debug, Clone)]
@@ -105,11 +105,13 @@ impl<'a> FractalBuilder<'a> {
 
         // 1. Fetch all leaf nodes in the namespace
         let leaf_nodes = self.fetch_leaf_nodes(namespace).await?;
-        
+
         if leaf_nodes.len() < self.config.min_nodes_for_fractal {
             info!(
                 "Skipping fractal build for namespace '{}': only {} nodes (min: {})",
-                namespace, leaf_nodes.len(), self.config.min_nodes_for_fractal
+                namespace,
+                leaf_nodes.len(),
+                self.config.min_nodes_for_fractal
             );
             return Ok(FractalBuildResult {
                 parent_nodes_created: 0,
@@ -120,19 +122,18 @@ impl<'a> FractalBuilder<'a> {
             });
         }
 
-        info!("Building fractal structure for {} leaf nodes in namespace '{}'", 
-              leaf_nodes.len(), namespace);
+        info!(
+            "Building fractal structure for {} leaf nodes in namespace '{}'",
+            leaf_nodes.len(),
+            namespace
+        );
 
         // 2. Convert to RAPTOR nodes
         let raptor_nodes: Vec<RaptorNode> = leaf_nodes
             .iter()
             .filter_map(|node| {
                 node.id.as_ref().map(|id| {
-                    RaptorNode::new(
-                        id.to_string(),
-                        node.content.clone(),
-                        node.embedding.clone(),
-                    )
+                    RaptorNode::new(id.to_string(), node.content.clone(), node.embedding.clone())
                 })
             })
             .collect();
@@ -143,9 +144,7 @@ impl<'a> FractalBuilder<'a> {
 
         info!(
             "RAPTOR tree built: {} clusters, max_depth={}, time={}ms",
-            raptor_tree.stats.total_clusters,
-            raptor_tree.max_depth,
-            raptor_tree.build_time_ms
+            raptor_tree.stats.total_clusters, raptor_tree.max_depth, raptor_tree.build_time_ms
         );
 
         // 4. Create parent nodes and edges from RAPTOR tree
@@ -181,7 +180,8 @@ impl<'a> FractalBuilder<'a> {
             AND depth_level = 0
         "#;
 
-        let mut result = self.db
+        let mut result = self
+            .db
             .query(query)
             .bind(("namespace", namespace))
             .await
@@ -226,7 +226,11 @@ impl<'a> FractalBuilder<'a> {
                 .filter(|(_, n)| n.depth == depth)
                 .collect();
 
-            debug!("Processing {} nodes at depth {}", nodes_at_depth.len(), depth);
+            debug!(
+                "Processing {} nodes at depth {}",
+                nodes_at_depth.len(),
+                depth
+            );
 
             for (cluster_id, tree_node) in nodes_at_depth {
                 // Generate summary if enabled and brain is available
@@ -237,12 +241,8 @@ impl<'a> FractalBuilder<'a> {
                 };
 
                 // Create parent node
-                let parent_node = self.create_parent_node(
-                    tree_node,
-                    namespace,
-                    depth as u32,
-                    summary,
-                )?;
+                let parent_node =
+                    self.create_parent_node(tree_node, namespace, depth as u32, summary)?;
 
                 let parent_id = node_repo.create(&parent_node).await?;
                 parent_count += 1;
@@ -278,7 +278,9 @@ impl<'a> FractalBuilder<'a> {
         }
 
         // Create semantic edges between siblings (nodes with same parent)
-        let sibling_edges = self.create_sibling_edges(tree, &cluster_to_node_id, edge_repo).await?;
+        let sibling_edges = self
+            .create_sibling_edges(tree, &cluster_to_node_id, edge_repo)
+            .await?;
         edge_count += sibling_edges;
 
         Ok((parent_count, edge_count, root_ids))
@@ -319,14 +321,16 @@ impl<'a> FractalBuilder<'a> {
             }
         };
 
-        let mut metadata = NodeMetadata::default();
-        metadata.source = "fractal_builder".to_string();
-        metadata.source_type = SourceType::Synthetic;
-        metadata.tags = vec![
-            format!("depth:{}", depth),
-            format!("children:{}", tree_node.children.len()),
-            format!("cluster:{}", tree_node.cluster_id),
-        ];
+        let metadata = NodeMetadata {
+            source: "fractal_builder".to_string(),
+            source_type: SourceType::Synthetic,
+            tags: vec![
+                format!("depth:{}", depth),
+                format!("children:{}", tree_node.children.len()),
+                format!("cluster:{}", tree_node.cluster_id),
+            ],
+            ..NodeMetadata::default()
+        };
 
         Ok(FractalNode::new_parent(
             summary.unwrap_or_else(|| "Cluster summary".to_string()),
@@ -385,10 +389,7 @@ impl<'a> FractalBuilder<'a> {
         tree: &RaptorTree,
     ) -> f32 {
         if let Some(child) = tree.nodes.get(child_cluster_id) {
-            crate::graph::similarity::cosine_similarity(
-                &parent.centroid,
-                &child.centroid,
-            )
+            crate::graph::similarity::cosine_similarity(&parent.centroid, &child.centroid)
         } else {
             0.8 // Default high similarity for parent-child
         }
@@ -429,8 +430,8 @@ impl<'a> FractalBuilder<'a> {
                     );
 
                     if similarity >= similarity_threshold {
-                        if let (Some(node_a), Some(node_b)) = 
-                            (cluster_to_node_id.get(id_a), cluster_to_node_id.get(id_b)) 
+                        if let (Some(node_a), Some(node_b)) =
+                            (cluster_to_node_id.get(id_a), cluster_to_node_id.get(id_b))
                         {
                             let edge = FractalEdge::new_semantic(
                                 node_a.clone(),
@@ -465,7 +466,7 @@ mod tests {
         let config = FractalBuilderConfig::new()
             .with_summaries(false)
             .with_min_nodes(10);
-        
+
         assert!(!config.generate_summaries);
         assert_eq!(config.min_nodes_for_fractal, 10);
     }

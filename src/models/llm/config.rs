@@ -241,7 +241,7 @@ impl ModelConfig {
         if self.provider.requires_api_key() {
             match &self.provider {
                 ModelProvider::Ollama { api_key, .. } => {
-                    if api_key.as_ref().map_or(true, |k| k.is_empty()) {
+                    if api_key.as_ref().is_none_or(|k| k.is_empty()) {
                         bail!("API key is required for remote provider");
                     }
                 }

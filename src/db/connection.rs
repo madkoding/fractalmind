@@ -1,7 +1,7 @@
+use anyhow::{Context, Result};
 use surrealdb::engine::remote::http::{Client, Http};
 use surrealdb::opt::auth::Root;
 use surrealdb::Surreal;
-use anyhow::{Context, Result};
 use tracing::{info, warn};
 
 /// Cliente de base de datos SurrealDB
@@ -21,16 +21,11 @@ impl DbConfig {
     /// Carga la configuración desde variables de entorno
     pub fn from_env() -> Result<Self> {
         Ok(Self {
-            url: std::env::var("SURREAL_URL")
-                .unwrap_or_else(|_| "ws://localhost:8000".to_string()),
-            username: std::env::var("SURREAL_USER")
-                .unwrap_or_else(|_| "root".to_string()),
-            password: std::env::var("SURREAL_PASS")
-                .unwrap_or_else(|_| "root".to_string()),
-            namespace: std::env::var("SURREAL_NS")
-                .unwrap_or_else(|_| "fractalmind".to_string()),
-            database: std::env::var("SURREAL_DB")
-                .unwrap_or_else(|_| "knowledge".to_string()),
+            url: std::env::var("SURREAL_URL").unwrap_or_else(|_| "ws://localhost:8000".to_string()),
+            username: std::env::var("SURREAL_USER").unwrap_or_else(|_| "root".to_string()),
+            password: std::env::var("SURREAL_PASS").unwrap_or_else(|_| "root".to_string()),
+            namespace: std::env::var("SURREAL_NS").unwrap_or_else(|_| "fractalmind".to_string()),
+            database: std::env::var("SURREAL_DB").unwrap_or_else(|_| "knowledge".to_string()),
         })
     }
 }
@@ -40,7 +35,8 @@ pub async fn connect_db(config: &DbConfig) -> Result<DatabaseConnection> {
     info!("Connecting to SurrealDB at {}", config.url);
 
     // Extraer host:port de la URL (remover protocolo)
-    let addr = config.url
+    let addr = config
+        .url
         .trim_start_matches("http://")
         .trim_start_matches("https://")
         .trim_start_matches("ws://")

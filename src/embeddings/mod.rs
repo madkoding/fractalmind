@@ -20,18 +20,20 @@
 //! ```
 
 pub mod config;
+pub mod mock_provider;
 pub mod provider;
 pub mod service;
-pub mod mock_provider;
 
 #[cfg(feature = "embeddings")]
 pub mod fastembed_provider;
 
 // Re-exports
 pub use config::{EmbeddingConfig, EmbeddingDevice};
-pub use provider::{BatchEmbeddingResult, EmbeddingProvider, EmbeddingProviderExt, EmbeddingResult};
-pub use service::EmbeddingService;
 pub use mock_provider::MockEmbeddingProvider;
+pub use provider::{
+    BatchEmbeddingResult, EmbeddingProvider, EmbeddingProviderExt, EmbeddingResult,
+};
+pub use service::EmbeddingService;
 
 #[cfg(feature = "embeddings")]
 pub use fastembed_provider::FastEmbedProvider;

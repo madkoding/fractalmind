@@ -113,7 +113,11 @@ impl TextChunker {
 
     /// Creates a chunker from configuration.
     pub fn from_config(config: &IngestionConfig) -> Self {
-        Self::new(config.chunk_size, config.chunk_overlap, config.min_chunk_size)
+        Self::new(
+            config.chunk_size,
+            config.chunk_overlap,
+            config.min_chunk_size,
+        )
     }
 
     /// Creates a chunker with default parameters.
@@ -149,7 +153,7 @@ impl TextChunker {
         while start < text.len() {
             // Ensure start is at a valid UTF-8 boundary
             start = self.find_char_boundary(text, start);
-            
+
             if start >= text.len() {
                 break;
             }
@@ -375,9 +379,7 @@ impl TextChunker {
             {
                 // Handle abbreviations and decimals
                 let is_abbreviation = self.is_likely_abbreviation(&current);
-                let is_decimal = c == '.'
-                    && i + 1 < chars.len()
-                    && chars[i + 1].is_ascii_digit();
+                let is_decimal = c == '.' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit();
 
                 if !is_abbreviation && !is_decimal {
                     sentences.push(current.trim().to_string());
@@ -428,28 +430,28 @@ impl TextChunker {
     /// Finds the nearest valid UTF-8 character boundary at or before the given position.
     fn find_char_boundary(&self, text: &str, pos: usize) -> usize {
         let pos = pos.min(text.len());
-        
+
         // Walk backwards to find a valid UTF-8 boundary
         for i in (0..=pos).rev() {
             if text.is_char_boundary(i) {
                 return i;
             }
         }
-        
+
         0
     }
 
     /// Finds the nearest valid UTF-8 character boundary at or after the given position.
     fn find_next_char_boundary(&self, text: &str, pos: usize) -> usize {
         let pos = pos.min(text.len());
-        
+
         // Walk forward to find a valid UTF-8 boundary
         for i in pos..=text.len() {
             if text.is_char_boundary(i) {
                 return i;
             }
         }
-        
+
         text.len()
     }
 }
@@ -548,7 +550,8 @@ mod tests {
 
     #[test]
     fn test_chunk_with_source() {
-        let chunk = TextChunk::new("Content".to_string(), 0, 1, 0, 7).with_source("doc.pdf".to_string());
+        let chunk =
+            TextChunk::new("Content".to_string(), 0, 1, 0, 7).with_source("doc.pdf".to_string());
 
         assert_eq!(chunk.source, Some("doc.pdf".to_string()));
     }
@@ -613,7 +616,7 @@ mod tests {
 
         // Should not panic
         assert!(result.count() >= 1);
-        
+
         // Verify we can iterate and access content without panics
         for chunk in &result.chunks {
             let _ = chunk.content.len();

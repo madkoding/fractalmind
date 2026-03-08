@@ -12,9 +12,9 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
-use crate::models::{EmbeddingModel, EmbeddingVector};
 use super::config::EmbeddingConfig;
 use super::provider::{BatchEmbeddingResult, EmbeddingProvider, EmbeddingResult};
+use crate::models::{EmbeddingModel, EmbeddingVector};
 
 /// FastEmbed-based embedding provider
 pub struct FastEmbedProvider {
@@ -31,7 +31,10 @@ pub struct FastEmbedProvider {
 impl FastEmbedProvider {
     /// Creates a new FastEmbed provider with the given configuration
     pub fn new(config: EmbeddingConfig) -> Result<Self> {
-        info!("Initializing FastEmbed provider with model: {:?}", config.model);
+        info!(
+            "Initializing FastEmbed provider with model: {:?}",
+            config.model
+        );
 
         let fastembed_model = Self::map_model(&config.model)?;
         let dimension = config.model.dimension();
@@ -42,10 +45,13 @@ impl FastEmbedProvider {
             init_options = init_options.with_cache_dir(cache_dir.into());
         }
 
-        let model = TextEmbedding::try_new(init_options)
-            .context("Failed to initialize FastEmbed model")?;
+        let model =
+            TextEmbedding::try_new(init_options).context("Failed to initialize FastEmbed model")?;
 
-        info!("FastEmbed provider initialized successfully (dimension: {})", dimension);
+        info!(
+            "FastEmbed provider initialized successfully (dimension: {})",
+            dimension
+        );
 
         Ok(Self {
             model: Arc::new(RwLock::new(model)),
@@ -129,8 +135,11 @@ impl EmbeddingProvider for FastEmbedProvider {
         let normalize = self.config.normalize;
         let batch_size = self.config.batch_size;
 
-        debug!("Generating batch embeddings for {} texts (batch_size: {})",
-               texts.len(), batch_size);
+        debug!(
+            "Generating batch embeddings for {} texts (batch_size: {})",
+            texts.len(),
+            batch_size
+        );
 
         let mut all_embeddings = Vec::with_capacity(texts.len());
 
@@ -152,7 +161,10 @@ impl EmbeddingProvider for FastEmbedProvider {
         let latency_ms = start.elapsed().as_millis() as u64;
         let count = all_embeddings.len();
 
-        debug!("Batch embedding generated {} vectors in {}ms", count, latency_ms);
+        debug!(
+            "Batch embedding generated {} vectors in {}ms",
+            count, latency_ms
+        );
 
         Ok(BatchEmbeddingResult {
             embeddings: all_embeddings,

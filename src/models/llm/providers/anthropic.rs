@@ -260,7 +260,9 @@ impl ChatProvider for AnthropicChat {
             .map(|msg| AnthropicChatMessage {
                 role: match msg.role {
                     ChatRole::System => {
-                        warn!("Anthropic uses 'system' role differently - placing in system prompt");
+                        warn!(
+                            "Anthropic uses 'system' role differently - placing in system prompt"
+                        );
                         "user".to_string()
                     }
                     ChatRole::User => "user".to_string(),

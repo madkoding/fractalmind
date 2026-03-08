@@ -127,7 +127,10 @@ impl ContentExtractor for PdfExtractor {
         let mut result = ExtractionResult::new(text, FileType::Pdf).with_metadata(metadata);
 
         if result.text.is_empty() {
-            result.add_warning("PDF appears to contain no extractable text (may be scanned/image-based)".to_string());
+            result.add_warning(
+                "PDF appears to contain no extractable text (may be scanned/image-based)"
+                    .to_string(),
+            );
         }
 
         Ok(result)

@@ -16,15 +16,17 @@ use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::fs;
-use tracing::{info, error, debug};
+use tracing::{debug, error, info};
 
 use crate::db::connection::DatabaseConnection;
 use crate::db::queries::{FractalModelNodeRepository, FractalModelRepository};
-use crate::graph::raptor::{Raptor, RaptorNode};
 use crate::graph::config::RaptorConfig;
-use crate::models::llm::fractal_model::{FractalModel, FractalModelNode, FractalModelStatus, LayerInfo, ModelArchitecture};
+use crate::graph::raptor::{Raptor, RaptorNode};
+use crate::models::llm::fractal_model::{
+    FractalModel, FractalModelNode, FractalModelStatus, LayerInfo, ModelArchitecture,
+};
 use crate::models::llm::gguf_parser::{GGUFParser, GGUFTensorInfo};
-use crate::models::{EmbeddingVector, EmbeddingModel};
+use crate::models::{EmbeddingModel, EmbeddingVector};
 
 /// GGUF quantization types and their sizes
 #[derive(Debug, Clone, Copy)]
@@ -88,7 +90,7 @@ pub struct ModelConversionService {
 
 impl ModelConversionService {
     pub fn new(db: Arc<DatabaseConnection>) -> Self {
-        Self { 
+        Self {
             db,
             embedding_dim: 768,
         }
@@ -100,7 +102,10 @@ impl ModelConversionService {
 
     /// Main conversion function - converts a GGUF model to fractal structure
     pub async fn convert_model(&self, model: &mut FractalModel) -> Result<()> {
-        info!("Starting REAL conversion of model: {} ({})", model.name, model.id);
+        info!(
+            "Starting REAL conversion of model: {} ({})",
+            model.name, model.id
+        );
         let model_id = model.id.clone();
         let file_path = model.file_path.clone();
 
@@ -116,7 +121,8 @@ impl ModelConversionService {
         model.update_conversion_progress(5.0, Some("Parsing GGUF header".to_string()));
         self.save_model(model).await?;
 
-        let (tensors, architecture, data_offset) = match self.parse_gguf_structure(&file_path).await {
+        let (tensors, architecture, data_offset) = match self.parse_gguf_structure(&file_path).await
+        {
             Ok(result) => result,
             Err(e) => {
                 error!("Failed to parse GGUF file: {}", e);
@@ -131,8 +137,13 @@ impl ModelConversionService {
         model.update_conversion_progress(10.0, Some("Architecture extracted".to_string()));
         self.save_model(model).await?;
         repo.update_architecture(&model_id, &architecture).await?;
-        
-        info!("Found {} tensors, {} layers, data offset: {}", tensors.len(), architecture.n_layers, data_offset);
+
+        info!(
+            "Found {} tensors, {} layers, data offset: {}",
+            tensors.len(),
+            architecture.n_layers,
+            data_offset
+        );
 
         // Phase 2: Group tensors (10-20%)
         info!("Phase 2: Grouping tensors by layer");
@@ -140,8 +151,11 @@ impl ModelConversionService {
         self.save_model(model).await?;
 
         let layer_groups = self.group_tensors_by_layer(&tensors, architecture.n_layers);
-        
-        model.update_conversion_progress(20.0, Some(format!("{} layer groups created", layer_groups.len())));
+
+        model.update_conversion_progress(
+            20.0,
+            Some(format!("{} layer groups created", layer_groups.len())),
+        );
         self.save_model(model).await?;
         info!("Created {} layer groups", layer_groups.len());
 
@@ -150,12 +164,10 @@ impl ModelConversionService {
         model.update_conversion_progress(25.0, Some("Generating embeddings".to_string()));
         self.save_model(model).await?;
 
-        let layer_embeddings = match self.generate_layer_embeddings_blocking(
-            &file_path,
-            &tensors,
-            &layer_groups,
-            data_offset,
-        ).await {
+        let layer_embeddings = match self
+            .generate_layer_embeddings_blocking(&file_path, &tensors, &layer_groups, data_offset)
+            .await
+        {
             Ok(embeddings) => embeddings,
             Err(e) => {
                 error!("Failed to generate embeddings: {}", e);
@@ -166,7 +178,10 @@ impl ModelConversionService {
             }
         };
 
-        model.update_conversion_progress(55.0, Some(format!("{} embeddings generated", layer_embeddings.len())));
+        model.update_conversion_progress(
+            55.0,
+            Some(format!("{} embeddings generated", layer_embeddings.len())),
+        );
         self.save_model(model).await?;
         info!("Generated {} layer embeddings", layer_embeddings.len());
 
@@ -210,13 +225,16 @@ impl ModelConversionService {
         let raptor = Raptor::new(raptor_config);
         let raptor_tree = raptor.build_tree(raptor_nodes);
 
-        model.update_conversion_progress(75.0, Some(format!(
-            "RAPTOR tree: {} nodes, depth {}",
-            raptor_tree.nodes.len(),
-            raptor_tree.max_depth
-        )));
+        model.update_conversion_progress(
+            75.0,
+            Some(format!(
+                "RAPTOR tree: {} nodes, depth {}",
+                raptor_tree.nodes.len(),
+                raptor_tree.max_depth
+            )),
+        );
         self.save_model(model).await?;
-        
+
         info!(
             "RAPTOR tree built: {} nodes, {} roots, depth {}",
             raptor_tree.nodes.len(),
@@ -229,12 +247,10 @@ impl ModelConversionService {
         model.update_conversion_progress(80.0, Some("Storing nodes".to_string()));
         self.save_model(model).await?;
 
-        let root_node_id = match self.store_fractal_nodes(
-            &model_id,
-            &raptor_tree,
-            &layer_embeddings,
-            &node_repo,
-        ).await {
+        let root_node_id = match self
+            .store_fractal_nodes(&model_id, &raptor_tree, &layer_embeddings, &node_repo)
+            .await
+        {
             Ok(root_id) => root_id,
             Err(e) => {
                 error!("Failed to store nodes: {}", e);
@@ -256,9 +272,13 @@ impl ModelConversionService {
         model.update_status(FractalModelStatus::Ready);
         model.update_conversion_progress(100.0, Some("Complete".to_string()));
         self.save_model(model).await?;
-        repo.update_status(&model_id, FractalModelStatus::Ready).await?;
+        repo.update_status(&model_id, FractalModelStatus::Ready)
+            .await?;
 
-        info!("Model conversion COMPLETED for {} - root node: {}", model.name, root_node_id);
+        info!(
+            "Model conversion COMPLETED for {} - root node: {}",
+            model.name, root_node_id
+        );
         Ok(())
     }
 
@@ -284,11 +304,7 @@ impl ModelConversionService {
 
         Ok(result)
     }
-    fn group_tensors_by_layer(
-        &self,
-        tensors: &[GGUFTensorInfo],
-        n_layers: u32,
-    ) -> Vec<LayerGroup> {
+    fn group_tensors_by_layer(&self, tensors: &[GGUFTensorInfo], n_layers: u32) -> Vec<LayerGroup> {
         let mut groups: Vec<LayerGroup> = Vec::new();
         let mut layer_tensors: HashMap<u32, Vec<&GGUFTensorInfo>> = HashMap::new();
         let mut special_tensors: Vec<&GGUFTensorInfo> = Vec::new();
@@ -306,7 +322,7 @@ impl ModelConversionService {
                 .iter()
                 .map(|t| t.dimensions.iter().product::<u64>())
                 .sum();
-            
+
             groups.push(LayerGroup {
                 layer_start: 0,
                 layer_end: 0,
@@ -318,11 +334,11 @@ impl ModelConversionService {
         }
 
         let layers_per_group = std::cmp::max(1, n_layers / 6);
-        
-        for group_idx in 0..((n_layers + layers_per_group - 1) / layers_per_group) {
+
+        for group_idx in 0..n_layers.div_ceil(layers_per_group) {
             let start = group_idx * layers_per_group;
             let end = std::cmp::min(start + layers_per_group - 1, n_layers.saturating_sub(1));
-            
+
             let mut group_tensors: Vec<String> = Vec::new();
             let mut total_params: u64 = 0;
             let mut has_attn = false;
@@ -333,7 +349,7 @@ impl ModelConversionService {
                     for tensor in tensors {
                         group_tensors.push(tensor.name.clone());
                         total_params += tensor.dimensions.iter().product::<u64>();
-                        
+
                         if tensor.name.contains("attn") || tensor.name.contains("attention") {
                             has_attn = true;
                         }
@@ -371,7 +387,7 @@ impl ModelConversionService {
 
     fn extract_layer_number(&self, name: &str) -> Option<u32> {
         let patterns = ["blk.", "layers.", "h.", "block.", "layer."];
-        
+
         for pattern in patterns {
             if let Some(pos) = name.find(pattern) {
                 let after_pattern = &name[pos + pattern.len()..];
@@ -419,14 +435,16 @@ impl ModelConversionService {
     ) -> Result<Vec<LayerGroup>> {
         let file = File::open(file_path)?;
         let mmap = unsafe { Mmap::map(&file)? };
-        
-        info!("Reading tensor data from offset {} (file size: {})", data_offset, mmap.len());
-        
+
+        info!(
+            "Reading tensor data from offset {} (file size: {})",
+            data_offset,
+            mmap.len()
+        );
+
         let mut result_groups: Vec<LayerGroup> = Vec::new();
-        let tensor_map: HashMap<&str, &GGUFTensorInfo> = tensors
-            .iter()
-            .map(|t| (t.name.as_str(), t))
-            .collect();
+        let tensor_map: HashMap<&str, &GGUFTensorInfo> =
+            tensors.iter().map(|t| (t.name.as_str(), t)).collect();
 
         for group in layer_groups {
             let embedding = Self::generate_group_embedding(
@@ -465,12 +483,12 @@ impl ModelConversionService {
         for tensor_name in group_tensor_names {
             if let Some(tensor) = tensor_map.get(tensor_name.as_str()) {
                 let samples = Self::sample_tensor_values(mmap, tensor, data_offset);
-                
+
                 if !samples.is_empty() {
                     tensors_sampled += 1;
                     total_samples += samples.len();
                 }
-                
+
                 for (i, &sample) in samples.iter().enumerate() {
                     let idx = (i * 31 + tensor_name.len()) % embedding_dim;
                     embedding[idx] += sample;
@@ -482,8 +500,8 @@ impl ModelConversionService {
         // Log sampling stats for debugging
         if tensors_sampled == 0 {
             tracing::warn!(
-                "No samples collected from {} tensors in group! data_offset={}", 
-                group_tensor_names.len(), 
+                "No samples collected from {} tensors in group! data_offset={}",
+                group_tensor_names.len(),
                 data_offset
             );
         } else {
@@ -512,15 +530,11 @@ impl ModelConversionService {
         embedding
     }
 
-    fn sample_tensor_values(
-        mmap: &Mmap,
-        tensor: &GGUFTensorInfo,
-        data_offset: u64,
-    ) -> Vec<f32> {
+    fn sample_tensor_values(mmap: &Mmap, tensor: &GGUFTensorInfo, data_offset: u64) -> Vec<f32> {
         let mut samples = Vec::new();
         let tensor_offset = (data_offset + tensor.offset) as usize;
         let tensor_size: u64 = tensor.dimensions.iter().product();
-        
+
         // Check if offset is within file bounds
         if tensor_offset >= mmap.len() {
             tracing::warn!(
@@ -588,26 +602,39 @@ impl ModelConversionService {
         samples
     }
 
-    fn sample_q4_tensor(mmap: &Mmap, offset: usize, size: u64, step: usize, samples: &mut Vec<f32>) {
+    fn sample_q4_tensor(
+        mmap: &Mmap,
+        offset: usize,
+        size: u64,
+        step: usize,
+        samples: &mut Vec<f32>,
+    ) {
         let block_size = 32;
         let bytes_per_block = 18;
-        let num_blocks = (size as usize + block_size - 1) / block_size;
+        let num_blocks = (size as usize).div_ceil(block_size);
 
-        for block_idx in (0..num_blocks).step_by(std::cmp::max(1, step / block_size)).take(64) {
+        for block_idx in (0..num_blocks)
+            .step_by(std::cmp::max(1, step / block_size))
+            .take(64)
+        {
             let block_offset = offset + block_idx * bytes_per_block;
             if block_offset + bytes_per_block <= mmap.len() {
                 let mut cursor = Cursor::new(&mmap[block_offset..block_offset + 2]);
                 if let Ok(scale_bits) = cursor.read_u16::<LittleEndian>() {
                     let scale = f16::from_bits(scale_bits).to_f32();
-                    
+
                     for i in 0..4 {
                         let byte_pos = block_offset + 2 + i;
                         if byte_pos < mmap.len() {
                             let byte = mmap[byte_pos];
                             let v0 = ((byte & 0x0F) as i8 - 8) as f32 * scale;
                             let v1 = ((byte >> 4) as i8 - 8) as f32 * scale;
-                            if v0.is_finite() { samples.push(v0); }
-                            if v1.is_finite() { samples.push(v1); }
+                            if v0.is_finite() {
+                                samples.push(v0);
+                            }
+                            if v1.is_finite() {
+                                samples.push(v1);
+                            }
                         }
                     }
                 }
@@ -615,24 +642,35 @@ impl ModelConversionService {
         }
     }
 
-    fn sample_q8_tensor(mmap: &Mmap, offset: usize, size: u64, step: usize, samples: &mut Vec<f32>) {
+    fn sample_q8_tensor(
+        mmap: &Mmap,
+        offset: usize,
+        size: u64,
+        step: usize,
+        samples: &mut Vec<f32>,
+    ) {
         let block_size = 32;
         let bytes_per_block = 34;
-        let num_blocks = (size as usize + block_size - 1) / block_size;
+        let num_blocks = (size as usize).div_ceil(block_size);
 
-        for block_idx in (0..num_blocks).step_by(std::cmp::max(1, step / block_size)).take(64) {
+        for block_idx in (0..num_blocks)
+            .step_by(std::cmp::max(1, step / block_size))
+            .take(64)
+        {
             let block_offset = offset + block_idx * bytes_per_block;
             if block_offset + bytes_per_block <= mmap.len() {
                 let mut cursor = Cursor::new(&mmap[block_offset..block_offset + 2]);
                 if let Ok(scale_bits) = cursor.read_u16::<LittleEndian>() {
                     let scale = f16::from_bits(scale_bits).to_f32();
-                    
+
                     for i in 0..8 {
                         let pos = block_offset + 2 + i;
                         if pos < mmap.len() {
                             let q = mmap[pos] as i8;
                             let val = q as f32 * scale;
-                            if val.is_finite() { samples.push(val); }
+                            if val.is_finite() {
+                                samples.push(val);
+                            }
                         }
                     }
                 }
@@ -650,7 +688,11 @@ impl ModelConversionService {
         let mut id_map: HashMap<String, String> = HashMap::new();
 
         // First pass: create leaf nodes
-        debug!("Processing {} leaves: {:?}", raptor_tree.leaves.len(), raptor_tree.leaves);
+        debug!(
+            "Processing {} leaves: {:?}",
+            raptor_tree.leaves.len(),
+            raptor_tree.leaves
+        );
         for leaf_id in &raptor_tree.leaves {
             if let Some(tree_node) = raptor_tree.nodes.get(leaf_id) {
                 // For leaf nodes, members contains the original node IDs (layer_group_X)
@@ -660,21 +702,33 @@ impl ModelConversionService {
                     .strip_prefix("layer_group_")
                     .and_then(|s| s.parse::<usize>().ok())
                     .unwrap_or(0);
-                
-                debug!("Leaf '{}' (original: '{}') -> layer_idx={}, layer_groups.len={}", 
-                       leaf_id, original_id, layer_idx, layer_groups.len());
+
+                debug!(
+                    "Leaf '{}' (original: '{}') -> layer_idx={}, layer_groups.len={}",
+                    leaf_id,
+                    original_id,
+                    layer_idx,
+                    layer_groups.len()
+                );
 
                 let layer_group = layer_groups.get(layer_idx);
-                
+
                 if let Some(g) = layer_group {
-                    debug!("  Found group: layer_start={}, layer_end={}, layer_type={}", g.layer_start, g.layer_end, g.layer_type);
+                    debug!(
+                        "  Found group: layer_start={}, layer_end={}, layer_type={}",
+                        g.layer_start, g.layer_end, g.layer_type
+                    );
                 } else {
                     debug!("  NO GROUP FOUND for layer_idx={}", layer_idx);
                 }
-                
+
                 let layer_info = LayerInfo {
-                    layer_range: layer_group.map(|g| (g.layer_start, g.layer_end)).unwrap_or((0, 0)),
-                    layer_type: layer_group.map(|g| g.layer_type.clone()).unwrap_or_else(|| "unknown".to_string()),
+                    layer_range: layer_group
+                        .map(|g| (g.layer_start, g.layer_end))
+                        .unwrap_or((0, 0)),
+                    layer_type: layer_group
+                        .map(|g| g.layer_type.clone())
+                        .unwrap_or_else(|| "unknown".to_string()),
                     summary: tree_node.combined_content.chars().take(500).collect(),
                     metadata: serde_json::json!({
                         "tensor_count": layer_group.map(|g| g.tensors.len()).unwrap_or(0),
@@ -713,10 +767,13 @@ impl ModelConversionService {
                 let layer_info = LayerInfo {
                     layer_range: (0, 0),
                     layer_type: format!("cluster_L{}", depth),
-                    summary: tree_node
-                        .summary
-                        .clone()
-                        .unwrap_or_else(|| format!("Cluster of {} nodes at level {}", children_db_ids.len(), depth)),
+                    summary: tree_node.summary.clone().unwrap_or_else(|| {
+                        format!(
+                            "Cluster of {} nodes at level {}",
+                            children_db_ids.len(),
+                            depth
+                        )
+                    }),
                     metadata: serde_json::json!({
                         "child_count": children_db_ids.len(),
                         "internal_similarity": tree_node.internal_similarity,
@@ -753,15 +810,22 @@ impl ModelConversionService {
             .and_then(|root_cluster| id_map.get(root_cluster))
             .cloned()
             .unwrap_or_else(|| {
-                id_map.values().next().cloned().unwrap_or_else(|| "unknown".to_string())
+                id_map
+                    .values()
+                    .next()
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".to_string())
             });
 
         Ok(root_id)
     }
 
     async fn save_model(&self, model: &FractalModel) -> Result<()> {
-        let id_part = model.id.strip_prefix("fractal_models:").unwrap_or(&model.id);
-        
+        let id_part = model
+            .id
+            .strip_prefix("fractal_models:")
+            .unwrap_or(&model.id);
+
         let query = r#"
             UPDATE type::thing("fractal_models", $id) SET
                 name = $name,
@@ -795,8 +859,11 @@ impl ModelConversionService {
     }
 
     pub async fn create_model(&self, model: &FractalModel) -> Result<()> {
-        let id_part = model.id.strip_prefix("fractal_models:").unwrap_or(&model.id);
-        
+        let id_part = model
+            .id
+            .strip_prefix("fractal_models:")
+            .unwrap_or(&model.id);
+
         let query = r#"
             CREATE type::thing("fractal_models", $id) SET
                 name = $name,
@@ -832,8 +899,9 @@ impl ModelConversionService {
 
     pub async fn list_models(&self) -> Result<Vec<FractalModel>> {
         let query = "SELECT * FROM fractal_models ORDER BY created_at DESC";
-        
-        let mut response = self.db
+
+        let mut response = self
+            .db
             .query(query)
             .await
             .context("Failed to list models")?;
@@ -845,8 +913,9 @@ impl ModelConversionService {
     pub async fn get_model(&self, model_id: &str) -> Result<Option<FractalModel>> {
         let id_part = model_id.strip_prefix("fractal_models:").unwrap_or(model_id);
         let query = "SELECT * FROM type::thing(\"fractal_models\", $id)";
-        
-        let mut response = self.db
+
+        let mut response = self
+            .db
             .query(query)
             .bind(("id", id_part))
             .await

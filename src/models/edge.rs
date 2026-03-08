@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
-use chrono::{DateTime, Utc};
 
 /// Tipo de relación entre nodos
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
