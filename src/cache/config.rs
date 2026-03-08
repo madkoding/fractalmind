@@ -2,8 +2,8 @@
 
 #![allow(dead_code)]
 
-use std::time::Duration;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 /// Configuration for the LRU cache
 #[derive(Debug, Clone, Serialize, Deserialize)]

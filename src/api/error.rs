@@ -56,7 +56,9 @@ impl IntoResponse for ApiError {
             ApiError::EmbeddingError(_) => (StatusCode::INTERNAL_SERVER_ERROR, "EMBEDDING_ERROR"),
             ApiError::LlmError(_) => (StatusCode::INTERNAL_SERVER_ERROR, "LLM_ERROR"),
             ApiError::ValidationError(_) => (StatusCode::BAD_REQUEST, "VALIDATION_ERROR"),
-            ApiError::ServiceUnavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE"),
+            ApiError::ServiceUnavailable(_) => {
+                (StatusCode::SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE")
+            }
         };
 
         let body = ErrorResponse {

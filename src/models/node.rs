@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
-use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use super::embedding::EmbeddingVector;
@@ -157,7 +157,11 @@ pub struct FractalNode {
     pub updated_at: DateTime<Utc>,
 
     /// Timestamp de última consulta (para cache LRU)
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "datetime_string_option")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "datetime_string_option"
+    )]
     pub last_accessed_at: Option<DateTime<Utc>>,
 }
 

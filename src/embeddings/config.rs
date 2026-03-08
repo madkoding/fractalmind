@@ -2,8 +2,8 @@
 
 #![allow(dead_code)]
 
-use serde::{Deserialize, Serialize};
 use crate::models::EmbeddingModel;
+use serde::{Deserialize, Serialize};
 
 /// Configuration for the embedding service
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,11 +106,11 @@ impl EmbeddingConfig {
             .map(|d| match d.as_str() {
                 "cuda" => EmbeddingDevice::Cuda,
                 "cpu" => EmbeddingDevice::Cpu,
-                d if d.starts_with("cuda:") => {
-                    d[5..].parse().ok()
-                        .map(EmbeddingDevice::CudaDevice)
-                        .unwrap_or(EmbeddingDevice::Cuda)
-                }
+                d if d.starts_with("cuda:") => d[5..]
+                    .parse()
+                    .ok()
+                    .map(EmbeddingDevice::CudaDevice)
+                    .unwrap_or(EmbeddingDevice::Cuda),
                 _ => EmbeddingDevice::Cpu,
             })
             .unwrap_or(EmbeddingDevice::Cpu);

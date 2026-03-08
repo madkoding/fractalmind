@@ -52,16 +52,31 @@ fn model_upload_routes() -> Router<SharedState> {
         // Initialize chunked upload
         .route("/upload/init", post(handlers::init_model_upload))
         // Upload a chunk (increased body limit for 50MB+ chunks)
-        .route("/upload/:upload_id/chunk", post(handlers::upload_model_chunk))
+        .route(
+            "/upload/:upload_id/chunk",
+            post(handlers::upload_model_chunk),
+        )
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100MB limit for chunks
         // Finalize upload
-        .route("/upload/:upload_id/finalize", post(handlers::finalize_model_upload))
+        .route(
+            "/upload/:upload_id/finalize",
+            post(handlers::finalize_model_upload),
+        )
         // Get upload status
-        .route("/upload/:upload_id/status", get(handlers::get_upload_status))
+        .route(
+            "/upload/:upload_id/status",
+            get(handlers::get_upload_status),
+        )
         // Cancel upload
-        .route("/upload/:upload_id/cancel", post(handlers::cancel_model_upload))
+        .route(
+            "/upload/:upload_id/cancel",
+            post(handlers::cancel_model_upload),
+        )
         // Progress stream (SSE)
-        .route("/upload/:upload_id/progress", get(handlers::upload_progress_stream))
+        .route(
+            "/upload/:upload_id/progress",
+            get(handlers::upload_progress_stream),
+        )
         // List Ollama models
         .route("/ollama", get(handlers::list_ollama_models))
         // List all fractal models

@@ -5,8 +5,8 @@
 
 #![allow(dead_code)]
 
-use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::time::Instant;
 
 use super::config::SsspConfig;
@@ -40,7 +40,9 @@ impl GraphNode {
 
     /// Gets the weight (distance) to a neighbor.
     pub fn weight_to(&self, neighbor_id: &str) -> Option<f32> {
-        self.edges.get(neighbor_id).map(|&sim| similarity_to_distance(sim))
+        self.edges
+            .get(neighbor_id)
+            .map(|&sim| similarity_to_distance(sim))
     }
 }
 
@@ -62,7 +64,10 @@ impl PartialEq for DijkstraEntry {
 impl Ord for DijkstraEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         // Reverse ordering for min-heap (smaller distance = higher priority)
-        other.distance.partial_cmp(&self.distance).unwrap_or(Ordering::Equal)
+        other
+            .distance
+            .partial_cmp(&self.distance)
+            .unwrap_or(Ordering::Equal)
             .then_with(|| self.node_id.cmp(&other.node_id))
     }
 }
@@ -168,7 +173,9 @@ impl SsspResult {
 
     /// Gets the k nearest nodes from the source.
     pub fn k_nearest(&self, k: usize) -> Vec<(String, f32)> {
-        let mut sorted: Vec<_> = self.distances.iter()
+        let mut sorted: Vec<_> = self
+            .distances
+            .iter()
             .map(|(id, &dist)| (id.clone(), dist))
             .collect();
 
@@ -308,7 +315,8 @@ impl Sssp {
                 let edge_distance = similarity_to_distance(similarity);
                 let new_distance = distance + edge_distance;
 
-                let is_shorter = distances.get(neighbor_id)
+                let is_shorter = distances
+                    .get(neighbor_id)
                     .map(|&d| new_distance < d)
                     .unwrap_or(true);
 
@@ -332,7 +340,8 @@ impl Sssp {
 
                         let new_distance = distance + shortcut.distance;
 
-                        let is_shorter = distances.get(&shortcut.to)
+                        let is_shorter = distances
+                            .get(&shortcut.to)
                             .map(|&d| new_distance < d)
                             .unwrap_or(true);
 
@@ -385,9 +394,7 @@ impl Sssp {
 
         // For each sampled node, compute short-range shortest paths
         for &sample_node in &sampled_nodes {
-            let temp_config = SsspConfig::new()
-                .with_max_hops(3)
-                .with_hopsets(false);
+            let temp_config = SsspConfig::new().with_max_hops(3).with_hopsets(false);
 
             let temp_sssp = Sssp::new(temp_config);
             let result = temp_sssp.compute(graph, sample_node, None);

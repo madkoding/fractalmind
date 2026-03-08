@@ -114,10 +114,9 @@ where
         let mut cache = self.cache.write().ok()?;
 
         // Check if this will cause an eviction
-        if cache.len() >= self.config.capacity && !cache.contains(&key) {
-            if self.config.track_metrics {
-                self.evictions.fetch_add(1, Ordering::Relaxed);
-            }
+        if cache.len() >= self.config.capacity && !cache.contains(&key) && self.config.track_metrics
+        {
+            self.evictions.fetch_add(1, Ordering::Relaxed);
         }
 
         cache.put(key, entry).map(|e| e.into_value())

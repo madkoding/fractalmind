@@ -3,17 +3,17 @@
 //! Like human sleep, the REM phase runs during "night hours" to consolidate
 //! memories without impacting daytime performance.
 
+use chrono::{Local, Timelike};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
-use tracing::{info, warn, debug, error};
-use chrono::{Local, Timelike};
+use tracing::{debug, error, info, warn};
 
 use crate::db::connection::DatabaseConnection;
 use crate::db::queries::NodeRepository;
 use crate::models::llm::ModelBrain;
-use crate::services::FractalBuilder;
 use crate::services::fractal_builder::FractalBuilderConfig;
+use crate::services::FractalBuilder;
 
 /// Configuration for REM scheduler
 #[derive(Debug, Clone)]
@@ -35,8 +35,8 @@ pub struct RemSchedulerConfig {
 impl Default for RemSchedulerConfig {
     fn default() -> Self {
         Self {
-            start_hour: 2,   // 2 AM
-            end_hour: 6,     // 6 AM
+            start_hour: 2, // 2 AM
+            end_hour: 6,   // 6 AM
             interval_minutes: 30,
             max_nodes_per_run: 100,
             namespaces: vec!["global_knowledge".to_string()],
@@ -51,27 +51,27 @@ impl RemSchedulerConfig {
         let enabled = std::env::var("REM_SCHEDULER_ENABLED")
             .map(|v| v.to_lowercase() == "true" || v == "1")
             .unwrap_or(true);
-        
+
         let start_hour = std::env::var("REM_START_HOUR")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(2);
-        
+
         let end_hour = std::env::var("REM_END_HOUR")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(6);
-        
+
         let interval_minutes = std::env::var("REM_INTERVAL_MINUTES")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(30);
-        
+
         let max_nodes = std::env::var("REM_MAX_NODES")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(100);
-        
+
         Self {
             start_hour,
             end_hour,
@@ -81,7 +81,7 @@ impl RemSchedulerConfig {
             enabled,
         }
     }
-    
+
     /// Check if current time is within REM window
     pub fn is_rem_time(&self) -> bool {
         let hour = Local::now().hour();
@@ -115,11 +115,7 @@ pub struct RemScheduler {
 
 impl RemScheduler {
     /// Create a new REM scheduler
-    pub fn new(
-        config: RemSchedulerConfig,
-        db: DatabaseConnection,
-        brain: ModelBrain,
-    ) -> Self {
+    pub fn new(config: RemSchedulerConfig, db: DatabaseConnection, brain: ModelBrain) -> Self {
         Self {
             config,
             db: Arc::new(RwLock::new(db)),
@@ -128,11 +124,11 @@ impl RemScheduler {
             last_run: Arc::new(RwLock::new(None)),
         }
     }
-    
+
     /// Start the background scheduler
     pub fn start(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
         let scheduler = self.clone();
-        
+
         tokio::spawn(async move {
             info!(
                 "REM Scheduler started (active hours: {:02}:00 - {:02}:00, interval: {} min)",
@@ -140,22 +136,22 @@ impl RemScheduler {
                 scheduler.config.end_hour,
                 scheduler.config.interval_minutes
             );
-            
+
             let mut check_interval = interval(Duration::from_secs(60)); // Check every minute
-            
+
             loop {
                 check_interval.tick().await;
-                
+
                 if !scheduler.config.enabled {
                     continue;
                 }
-                
+
                 // Check if it's REM time
                 if !scheduler.config.is_rem_time() {
                     debug!("Not in REM window, skipping...");
                     continue;
                 }
-                
+
                 // Check if enough time has passed since last run
                 let should_run = {
                     let last_run = scheduler.last_run.read().await;
@@ -167,11 +163,11 @@ impl RemScheduler {
                         }
                     }
                 };
-                
+
                 if !should_run {
                     continue;
                 }
-                
+
                 // Check if already running
                 {
                     let is_running = scheduler.is_running.read().await;
@@ -180,15 +176,15 @@ impl RemScheduler {
                         continue;
                     }
                 }
-                
+
                 // Run REM phase
                 info!("🌙 Starting automatic REM phase consolidation...");
-                
+
                 {
                     let mut is_running = scheduler.is_running.write().await;
                     *is_running = true;
                 }
-                
+
                 for namespace in &scheduler.config.namespaces {
                     match scheduler.run_for_namespace(namespace).await {
                         Ok(result) => {
@@ -206,52 +202,55 @@ impl RemScheduler {
                         }
                     }
                 }
-                
+
                 {
                     let mut is_running = scheduler.is_running.write().await;
                     *is_running = false;
                     let mut last_run = scheduler.last_run.write().await;
                     *last_run = Some(Local::now());
                 }
-                
+
                 info!("🌙 REM phase consolidation completed");
             }
         })
     }
-    
+
     /// Run REM phase for a specific namespace
     async fn run_for_namespace(&self, namespace: &str) -> Result<RemRunResult, String> {
         let start = std::time::Instant::now();
-        
+
         let db = self.db.read().await;
         let brain = self.brain.read().await;
         let node_repo = NodeRepository::new(&db);
-        
+
         // Get leaf nodes
         let all_nodes = node_repo
             .get_by_namespace(namespace)
             .await
             .map_err(|e| format!("Failed to list nodes: {}", e))?;
-        
+
         let leaf_nodes: Vec<_> = all_nodes
             .into_iter()
             .filter(|n| n.depth_level == 0)
             .take(self.config.max_nodes_per_run)
             .collect();
-        
+
         let nodes_processed = leaf_nodes.len();
         let mut nodes_created = 0;
         let mut clusters_formed = 0;
-        
+
         // Build fractal hierarchy if we have enough nodes
         if leaf_nodes.len() >= 3 {
             let config = FractalBuilderConfig::new()
                 .with_summaries(true)
                 .with_min_nodes(3);
-            
+
             let fractal_builder = FractalBuilder::new(&db, config);
-            
-            match fractal_builder.build_for_namespace(namespace, Some(&brain)).await {
+
+            match fractal_builder
+                .build_for_namespace(namespace, Some(&brain))
+                .await
+            {
                 Ok(result) => {
                     nodes_created = result.parent_nodes_created;
                     clusters_formed = result.edges_created;
@@ -261,7 +260,7 @@ impl RemScheduler {
                 }
             }
         }
-        
+
         Ok(RemRunResult {
             namespace: namespace.to_string(),
             nodes_processed,
@@ -270,13 +269,13 @@ impl RemScheduler {
             duration_ms: start.elapsed().as_millis() as u64,
         })
     }
-    
+
     /// Get scheduler status
     pub async fn status(&self) -> RemSchedulerStatus {
         let is_running = *self.is_running.read().await;
         let last_run = *self.last_run.read().await;
         let is_rem_time = self.config.is_rem_time();
-        
+
         RemSchedulerStatus {
             enabled: self.config.enabled,
             is_running,

@@ -301,13 +301,13 @@ pub struct SearchResponse {
 pub struct BuildFractalRequest {
     /// Namespace to build fractal for
     pub namespace: Option<String>,
-    
+
     /// Whether to generate summaries using LLM
     pub generate_summaries: Option<bool>,
-    
+
     /// Minimum similarity threshold for clustering (0.0 to 1.0)
     pub similarity_threshold: Option<f32>,
-    
+
     /// Maximum depth of the fractal tree
     pub max_depth: Option<usize>,
 }
@@ -382,7 +382,10 @@ mod tests {
         let request: IngestRequest = serde_json::from_str(json).unwrap();
         assert_eq!(request.content, "Test content");
         assert_eq!(request.source, Some("test.txt".to_string()));
-        assert_eq!(request.tags, Some(vec!["tag1".to_string(), "tag2".to_string()]));
+        assert_eq!(
+            request.tags,
+            Some(vec!["tag1".to_string(), "tag2".to_string()])
+        );
     }
 
     #[test]
@@ -470,7 +473,7 @@ pub struct DeleteModelResponse {
 /// Request to update model strategy
 #[derive(Deserialize)]
 pub struct UpdateStrategyRequest {
-    pub strategy: String, // "fractal" or "ollama"
+    pub strategy: String,         // "fractal" or "ollama"
     pub model_id: Option<String>, // Required if strategy is "fractal"
 }
 
@@ -542,13 +545,13 @@ pub struct UploadChunkResponse {
 /// Combined progress response
 #[derive(Serialize)]
 pub struct ProgressResponse {
-    pub upload_progress: f32,      // 0-100
-    pub conversion_progress: f32,  // 0-100
-    pub status: String,            // "uploading", "finalizing", "converting", "ready", "failed"
+    pub upload_progress: f32,     // 0-100
+    pub conversion_progress: f32, // 0-100
+    pub status: String,           // "uploading", "finalizing", "converting", "ready", "failed"
     pub upload_speed_mbps: Option<f32>,
     pub chunks_received: Option<u64>,
     pub total_chunks: Option<u64>,
-    pub current_phase: Option<String>,  // For conversion: "parsing", "clustering", etc.
+    pub current_phase: Option<String>, // For conversion: "parsing", "clustering", etc.
 }
 
 /// Response from upload finalization

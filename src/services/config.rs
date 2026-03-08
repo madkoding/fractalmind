@@ -285,10 +285,7 @@ mod tests {
 
         assert_eq!(config.provider, "tavily");
         assert_eq!(config.api_key, Some("test-key".to_string()));
-        assert_eq!(
-            config.base_url,
-            Some("https://api.tavily.com".to_string())
-        );
+        assert_eq!(config.base_url, Some("https://api.tavily.com".to_string()));
         assert_eq!(config.max_results, 10);
     }
 
