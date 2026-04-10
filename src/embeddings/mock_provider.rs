@@ -6,8 +6,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::time::Instant;
 
-use crate::models::{EmbeddingModel, EmbeddingVector};
 use super::provider::{BatchEmbeddingResult, EmbeddingProvider, EmbeddingResult};
+use crate::models::{EmbeddingModel, EmbeddingVector};
 
 /// Mock embedding provider for testing
 ///
@@ -161,8 +161,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_provider_embed() {
-        let provider = MockEmbeddingProvider::new(EmbeddingModel::NomicEmbedTextV15)
-            .with_latency(0);
+        let provider =
+            MockEmbeddingProvider::new(EmbeddingModel::NomicEmbedTextV15).with_latency(0);
 
         let result = provider.embed("hello world").await.unwrap();
 
@@ -173,8 +173,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_provider_deterministic() {
-        let provider = MockEmbeddingProvider::new(EmbeddingModel::NomicEmbedTextV15)
-            .with_latency(0);
+        let provider =
+            MockEmbeddingProvider::new(EmbeddingModel::NomicEmbedTextV15).with_latency(0);
 
         let result1 = provider.embed("hello world").await.unwrap();
         let result2 = provider.embed("hello world").await.unwrap();
@@ -185,8 +185,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_provider_different_texts() {
-        let provider = MockEmbeddingProvider::new(EmbeddingModel::NomicEmbedTextV15)
-            .with_latency(0);
+        let provider =
+            MockEmbeddingProvider::new(EmbeddingModel::NomicEmbedTextV15).with_latency(0);
 
         let result1 = provider.embed("hello world").await.unwrap();
         let result2 = provider.embed("goodbye world").await.unwrap();
@@ -197,8 +197,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_provider_batch() {
-        let provider = MockEmbeddingProvider::new(EmbeddingModel::BaaiGgeSmall)
-            .with_latency(0);
+        let provider = MockEmbeddingProvider::new(EmbeddingModel::BaaiGgeSmall).with_latency(0);
 
         let texts = vec![
             "text one".to_string(),
@@ -215,8 +214,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_provider_should_fail() {
-        let provider = MockEmbeddingProvider::new(EmbeddingModel::NomicEmbedTextV15)
-            .should_fail(true);
+        let provider =
+            MockEmbeddingProvider::new(EmbeddingModel::NomicEmbedTextV15).should_fail(true);
 
         let result = provider.embed("test").await;
         assert!(result.is_err());
@@ -230,8 +229,8 @@ mod tests {
         let healthy_provider = MockEmbeddingProvider::new(EmbeddingModel::NomicEmbedTextV15);
         assert!(healthy_provider.health_check().await.unwrap());
 
-        let unhealthy_provider = MockEmbeddingProvider::new(EmbeddingModel::NomicEmbedTextV15)
-            .should_fail(true);
+        let unhealthy_provider =
+            MockEmbeddingProvider::new(EmbeddingModel::NomicEmbedTextV15).should_fail(true);
         assert!(!unhealthy_provider.health_check().await.unwrap());
     }
 
@@ -248,8 +247,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_provider_empty_batch() {
-        let provider = MockEmbeddingProvider::new(EmbeddingModel::NomicEmbedTextV15)
-            .with_latency(0);
+        let provider =
+            MockEmbeddingProvider::new(EmbeddingModel::NomicEmbedTextV15).with_latency(0);
 
         let result = provider.embed_batch(&[]).await.unwrap();
         assert_eq!(result.count, 0);

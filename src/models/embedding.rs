@@ -139,18 +139,9 @@ mod tests {
 
     #[test]
     fn test_cosine_similarity() {
-        let vec1 = EmbeddingVector::new(
-            vec![1.0, 0.0, 0.0],
-            EmbeddingModel::NomicEmbedTextV15,
-        );
-        let vec2 = EmbeddingVector::new(
-            vec![1.0, 0.0, 0.0],
-            EmbeddingModel::NomicEmbedTextV15,
-        );
-        let vec3 = EmbeddingVector::new(
-            vec![0.0, 1.0, 0.0],
-            EmbeddingModel::NomicEmbedTextV15,
-        );
+        let vec1 = EmbeddingVector::new(vec![1.0, 0.0, 0.0], EmbeddingModel::NomicEmbedTextV15);
+        let vec2 = EmbeddingVector::new(vec![1.0, 0.0, 0.0], EmbeddingModel::NomicEmbedTextV15);
+        let vec3 = EmbeddingVector::new(vec![0.0, 1.0, 0.0], EmbeddingModel::NomicEmbedTextV15);
 
         assert!((vec1.cosine_similarity(&vec2) - 1.0).abs() < 1e-6);
         assert!((vec1.cosine_similarity(&vec3) - 0.0).abs() < 1e-6);
@@ -158,14 +149,8 @@ mod tests {
 
     #[test]
     fn test_euclidean_distance() {
-        let vec1 = EmbeddingVector::new(
-            vec![0.0, 0.0, 0.0],
-            EmbeddingModel::NomicEmbedTextV15,
-        );
-        let vec2 = EmbeddingVector::new(
-            vec![1.0, 1.0, 1.0],
-            EmbeddingModel::NomicEmbedTextV15,
-        );
+        let vec1 = EmbeddingVector::new(vec![0.0, 0.0, 0.0], EmbeddingModel::NomicEmbedTextV15);
+        let vec2 = EmbeddingVector::new(vec![1.0, 1.0, 1.0], EmbeddingModel::NomicEmbedTextV15);
 
         let distance = vec1.euclidean_distance(&vec2);
         assert!((distance - 3.0_f32.sqrt()).abs() < 1e-6);
@@ -173,10 +158,7 @@ mod tests {
 
     #[test]
     fn test_normalize() {
-        let mut vec = EmbeddingVector::new(
-            vec![3.0, 4.0, 0.0],
-            EmbeddingModel::NomicEmbedTextV15,
-        );
+        let mut vec = EmbeddingVector::new(vec![3.0, 4.0, 0.0], EmbeddingModel::NomicEmbedTextV15);
 
         assert!(!vec.is_normalized());
         vec.normalize();

@@ -80,9 +80,9 @@ cd fractalmind
 ```
 
 **Docker Services:**
-- **SurrealDB** (port 8000): Database with persistent SSD storage in `./data/surrealdb/`
-- **SearXNG** (port 8080): Local web search for REM phase
-- **FractalMind API** (port 9000): Main API server (default: 9000, configurable via SERVER_PORT)
+- **SurrealDB** (port 8000): Database with persistent file storage in `./data/surrealdb/fractalmind.db`
+- **SearXNG** (port 18080): Local web search for REM phase (`8080` inside Docker network)
+- **FractalMind API** (port 12000): Main API server (`9000` inside Docker network)
 
 **Free LLM Models (Ollama Cloud):**
 - `nemotron-3-nano` - 30B parameters, excellent for chat/summarization
@@ -97,7 +97,7 @@ cd fractalmind
 **SearXNG Integration:**
 - automatically included in docker-compose (profile: searxng)
 - provides web search for REM phase
-- runs on http://localhost:8080
+- runs on http://localhost:18080 (host) and http://searxng:8080 (inside Docker)
 - if unavailable, REM phase web search disabled (still works with local knowledge)
 
 2. **Build and run**:
@@ -124,7 +124,7 @@ cargo test
 cargo test -- --ignored
 
 # Linting
-cargo clippy
+cargo clippy -- -D warnings
 
 # Formatting
 cargo fmt
@@ -260,12 +260,12 @@ OLLAMA_API_KEY=  # Empty for local
 
 ```bash
 # Ingest content - FastEmbed handles embeddings automatically
-curl -X POST http://localhost:9000/v1/ingest \
+curl -X POST http://localhost:12000/v1/ingest \
   -H "Content-Type: application/json" \
   -d '{"content": "Your text here", "namespace": "global"}'
 
 # Query - embeddings retrieved from DB (no model needed)
-curl -X POST http://localhost:9000/v1/ask \
+curl -X POST http://localhost:12000/v1/ask \
   -d '{"query": "What is this about?", "namespace": "global"}'
 ```
 
@@ -289,4 +289,4 @@ curl -X POST http://localhost:9000/v1/ask \
 MIT
 
 <!-- AUTO-UPDATE-DATE -->
-**Última actualización:** 2026-02-26 15:51:01 -03
+**Última actualización:** 2026-04-10

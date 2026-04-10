@@ -213,7 +213,9 @@ impl IngestionConfig {
 
     /// Checks if a file extension is allowed.
     pub fn is_extension_allowed(&self, ext: &str) -> bool {
-        self.allowed_extensions.iter().any(|e| e.eq_ignore_ascii_case(ext))
+        self.allowed_extensions
+            .iter()
+            .any(|e| e.eq_ignore_ascii_case(ext))
     }
 
     /// Checks if a file size is within limits.
@@ -276,7 +278,10 @@ mod tests {
         assert_eq!(FileType::from_mime("application/pdf"), FileType::Pdf);
         assert_eq!(FileType::from_mime("image/png"), FileType::Image);
         assert_eq!(FileType::from_mime("image/jpeg"), FileType::Image);
-        assert_eq!(FileType::from_mime("application/octet-stream"), FileType::Unknown);
+        assert_eq!(
+            FileType::from_mime("application/octet-stream"),
+            FileType::Unknown
+        );
     }
 
     #[test]
@@ -317,17 +322,26 @@ mod tests {
         // Test validation with chunk size below minimum (bypass builder's enforcement)
         let mut config = IngestionConfig::new();
         config.chunk_size = 30;
-        assert!(matches!(config.validate(), Err(ConfigError::ChunkSizeTooSmall)));
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::ChunkSizeTooSmall)
+        ));
 
         // Test overlap too large
         let mut config = IngestionConfig::new();
         config.chunk_overlap = config.chunk_size + 1;
-        assert!(matches!(config.validate(), Err(ConfigError::OverlapTooLarge)));
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::OverlapTooLarge)
+        ));
 
         // Test min chunk too large
         let mut config = IngestionConfig::new();
         config.min_chunk_size = config.chunk_size + 1;
-        assert!(matches!(config.validate(), Err(ConfigError::MinChunkTooLarge)));
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::MinChunkTooLarge)
+        ));
     }
 
     #[test]

@@ -1,7 +1,7 @@
+use anyhow::{Context, Result};
 use surrealdb::engine::remote::http::{Client, Http};
 use surrealdb::opt::auth::Root;
 use surrealdb::Surreal;
-use anyhow::{Context, Result};
 use tracing::{info, warn};
 
 /// Cliente de base de datos SurrealDB
@@ -23,14 +23,10 @@ impl DbConfig {
         Ok(Self {
             url: std::env::var("SURREAL_URL")
                 .unwrap_or_else(|_| "http://localhost:8000".to_string()),
-            username: std::env::var("SURREAL_USER")
-                .unwrap_or_else(|_| "root".to_string()),
-            password: std::env::var("SURREAL_PASS")
-                .unwrap_or_else(|_| "root".to_string()),
-            namespace: std::env::var("SURREAL_NS")
-                .unwrap_or_else(|_| "fractalmind".to_string()),
-            database: std::env::var("SURREAL_DB")
-                .unwrap_or_else(|_| "knowledge".to_string()),
+            username: std::env::var("SURREAL_USER").unwrap_or_else(|_| "root".to_string()),
+            password: std::env::var("SURREAL_PASS").unwrap_or_else(|_| "root".to_string()),
+            namespace: std::env::var("SURREAL_NS").unwrap_or_else(|_| "fractalmind".to_string()),
+            database: std::env::var("SURREAL_DB").unwrap_or_else(|_| "knowledge".to_string()),
         })
     }
 }
@@ -42,14 +38,10 @@ pub async fn connect_db(config: &DbConfig) -> Result<DatabaseConnection> {
     // This client uses HTTP transport. Accept ws/wss inputs for backwards
     // compatibility and normalize to an HTTP(S) endpoint.
     let normalized_url = if config.url.starts_with("ws://") {
-        warn!(
-            "SURREAL_URL uses ws:// but HTTP client is configured; normalizing to http://"
-        );
+        warn!("SURREAL_URL uses ws:// but HTTP client is configured; normalizing to http://");
         config.url.replacen("ws://", "http://", 1)
     } else if config.url.starts_with("wss://") {
-        warn!(
-            "SURREAL_URL uses wss:// but HTTP client is configured; normalizing to https://"
-        );
+        warn!("SURREAL_URL uses wss:// but HTTP client is configured; normalizing to https://");
         config.url.replacen("wss://", "https://", 1)
     } else {
         config.url.clone()

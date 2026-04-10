@@ -1,7 +1,10 @@
 #![allow(dead_code)]
 
 use super::config::{BrainConfig, ModelConfig, ModelProvider};
-use super::providers::{OllamaChat, OllamaEmbedding, OllamaSummarizer, OpenAIChat, OpenAIEmbedding, AnthropicChat, AnthropicEmbedding};
+use super::providers::{
+    AnthropicChat, AnthropicEmbedding, OllamaChat, OllamaEmbedding, OllamaSummarizer, OpenAIChat,
+    OpenAIEmbedding,
+};
 use super::traits_llm::{
     ChatMessage, ChatProvider, ChatResponse, EmbeddingProvider, EmbeddingResponse,
     SummarizerProvider,
@@ -36,7 +39,10 @@ impl ModelBrain {
         // Inicializar proveedor de embeddings
         info!("Initializing embedding provider...");
         let embedding_provider = Self::create_embedding_provider(&config.embedding_model)?;
-        info!("Embedding provider initialized: {}", embedding_provider.model_name());
+        info!(
+            "Embedding provider initialized: {}",
+            embedding_provider.model_name()
+        );
 
         // Inicializar proveedor de chat
         info!("Initializing chat provider...");
@@ -46,7 +52,10 @@ impl ModelBrain {
         // Inicializar proveedor de summarizer
         info!("Initializing summarizer provider...");
         let summarizer_provider = Self::create_summarizer_provider(&config.summarizer_model)?;
-        info!("Summarizer provider initialized: {}", summarizer_provider.model_name());
+        info!(
+            "Summarizer provider initialized: {}",
+            summarizer_provider.model_name()
+        );
 
         // Verificar salud de los proveedores (pero no fallar si no están disponibles)
         info!("Verifying provider health...");
@@ -54,9 +63,14 @@ impl ModelBrain {
             &embedding_provider,
             &chat_provider,
             &summarizer_provider,
-        ).await {
+        )
+        .await
+        {
             Ok(_) => info!("All providers are healthy"),
-            Err(e) => warn!("Provider health check failed (system will operate in degraded mode): {}", e),
+            Err(e) => warn!(
+                "Provider health check failed (system will operate in degraded mode): {}",
+                e
+            ),
         }
 
         info!("ModelBrain initialized successfully");
@@ -94,10 +108,10 @@ impl ModelBrain {
     /// Crea un ModelBrain básico solo con Ollama para tests
     pub fn with_ollama_only(base_url: String, embedding_model: String) -> Result<Self> {
         use crate::models::llm::config::{BrainConfig, ModelProvider};
-        
+
         let mut config = BrainConfig::default_local();
         config.prefer_local = true;
-        
+
         if let ModelProvider::Ollama { model_name, .. } = &mut config.embedding_model.provider {
             *model_name = embedding_model;
         }
@@ -110,7 +124,7 @@ impl ModelBrain {
         if let ModelProvider::Ollama { base_url: url, .. } = &mut config.summarizer_model.provider {
             *url = base_url.clone();
         }
-        
+
         let embedding_provider = Arc::new(OllamaEmbedding::new(
             base_url.clone(),
             config.embedding_model.provider.model_name(),
@@ -168,7 +182,10 @@ impl ModelBrain {
 
     /// Verifica salud del provider de embeddings
     pub async fn check_embedding_provider_health(&self) -> bool {
-        self.embedding_provider.health_check().await.unwrap_or(false)
+        self.embedding_provider
+            .health_check()
+            .await
+            .unwrap_or(false)
     }
 
     /// Verifica salud del provider de chat
@@ -178,13 +195,14 @@ impl ModelBrain {
 
     /// Verifica salud del provider de summarizer
     pub async fn check_summarizer_provider_health(&self) -> bool {
-        self.summarizer_provider.health_check().await.unwrap_or(false)
+        self.summarizer_provider
+            .health_check()
+            .await
+            .unwrap_or(false)
     }
 
     /// Crea un proveedor de embeddings desde configuración
-    fn create_embedding_provider(
-        config: &ModelConfig,
-    ) -> Result<Arc<dyn EmbeddingProvider>> {
+    fn create_embedding_provider(config: &ModelConfig) -> Result<Arc<dyn EmbeddingProvider>> {
         match &config.provider {
             ModelProvider::Ollama {
                 base_url,
@@ -307,9 +325,7 @@ impl ModelBrain {
     }
 
     /// Crea un proveedor de summarizer desde configuración
-    fn create_summarizer_provider(
-        config: &ModelConfig,
-    ) -> Result<Arc<dyn SummarizerProvider>> {
+    fn create_summarizer_provider(config: &ModelConfig) -> Result<Arc<dyn SummarizerProvider>> {
         match &config.provider {
             ModelProvider::Ollama {
                 base_url,
@@ -375,9 +391,15 @@ impl ModelBrain {
         let embedding_ok = match embedding.health_check().await {
             Ok(ok) => {
                 if ok {
-                    info!("✅ Embedding provider ({}): healthy", embedding.model_name());
+                    info!(
+                        "✅ Embedding provider ({}): healthy",
+                        embedding.model_name()
+                    );
                 } else {
-                    warn!("❌ Embedding provider ({}): health check failed", embedding.model_name());
+                    warn!(
+                        "❌ Embedding provider ({}): health check failed",
+                        embedding.model_name()
+                    );
                 }
                 ok
             }
@@ -392,7 +414,10 @@ impl ModelBrain {
                 if ok {
                     info!("✅ Chat provider ({}): healthy", chat.model_name());
                 } else {
-                    warn!("❌ Chat provider ({}): health check failed", chat.model_name());
+                    warn!(
+                        "❌ Chat provider ({}): health check failed",
+                        chat.model_name()
+                    );
                 }
                 ok
             }
@@ -405,9 +430,15 @@ impl ModelBrain {
         let summarizer_ok = match summarizer.health_check().await {
             Ok(ok) => {
                 if ok {
-                    info!("✅ Summarizer provider ({}): healthy", summarizer.model_name());
+                    info!(
+                        "✅ Summarizer provider ({}): healthy",
+                        summarizer.model_name()
+                    );
                 } else {
-                    warn!("❌ Summarizer provider ({}): health check failed", summarizer.model_name());
+                    warn!(
+                        "❌ Summarizer provider ({}): health check failed",
+                        summarizer.model_name()
+                    );
                 }
                 ok
             }
@@ -421,31 +452,42 @@ impl ModelBrain {
             error!(
                 "❌ Provider health check failed - System cannot operate without working providers"
             );
-            error!("embedding: {}, chat: {}, summarizer: {}", 
-                   if embedding_ok { "ok" } else { "failed" },
-                   if chat_ok { "ok" } else { "failed" },
-                   if summarizer_ok { "ok" } else { "failed" });
-            
+            error!(
+                "embedding: {}, chat: {}, summarizer: {}",
+                if embedding_ok { "ok" } else { "failed" },
+                if chat_ok { "ok" } else { "failed" },
+                if summarizer_ok { "ok" } else { "failed" }
+            );
+
             let mut error_msg = String::from("Provider configuration error:\n");
             if !embedding_ok {
-                error_msg.push_str(&format!("- Embedding provider '{}': failed health check\n", embedding.model_name()));
+                error_msg.push_str(&format!(
+                    "- Embedding provider '{}': failed health check\n",
+                    embedding.model_name()
+                ));
                 error_msg.push_str("  → Ensure the provider is running and accessible\n");
                 error_msg.push_str("  → Check your network connection and provider URL\n");
                 error_msg.push_str("  → Verify your API key if using cloud service\n");
             }
             if !chat_ok {
-                error_msg.push_str(&format!("- Chat provider '{}': failed health check\n", chat.model_name()));
+                error_msg.push_str(&format!(
+                    "- Chat provider '{}': failed health check\n",
+                    chat.model_name()
+                ));
                 error_msg.push_str("  → Ensure the provider is running and accessible\n");
                 error_msg.push_str("  → Check your network connection and provider URL\n");
                 error_msg.push_str("  → Verify your API key if using cloud service\n");
             }
             if !summarizer_ok {
-                error_msg.push_str(&format!("- Summarizer provider '{}': failed health check\n", summarizer.model_name()));
+                error_msg.push_str(&format!(
+                    "- Summarizer provider '{}': failed health check\n",
+                    summarizer.model_name()
+                ));
                 error_msg.push_str("  → Ensure the provider is running and accessible\n");
                 error_msg.push_str("  → Check your network connection and provider URL\n");
                 error_msg.push_str("  → Verify your API key if using cloud service\n");
             }
-            
+
             return Err(anyhow::anyhow!(error_msg.trim().to_string()));
         }
 
@@ -536,8 +578,14 @@ mod tests {
 
     #[test]
     fn test_infer_embedding_dimension() {
-        assert_eq!(ModelBrain::infer_embedding_dimension("nomic-embed-text"), 768);
-        assert_eq!(ModelBrain::infer_embedding_dimension("qwen3-embedding:0.6b"), 768);
+        assert_eq!(
+            ModelBrain::infer_embedding_dimension("nomic-embed-text"),
+            768
+        );
+        assert_eq!(
+            ModelBrain::infer_embedding_dimension("qwen3-embedding:0.6b"),
+            768
+        );
         assert_eq!(
             ModelBrain::infer_embedding_dimension("bge-small-en-v1.5"),
             384

@@ -1,16 +1,19 @@
-use axum::{body::{self, Body}, http::{Request, header}};
-use tower::util::ServiceExt;
+use axum::{
+    body::{self, Body},
+    http::{header, Request},
+};
 use fractalmind::api::routes::create_router;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tower::util::ServiceExt;
 use tracing::info;
 
 use fractalmind::api::handlers::AppState;
-use fractalmind::models::llm::BrainConfig;
-use fractalmind::models::llm::ModelBrain;
 use fractalmind::cache::EmbeddingCache;
 use fractalmind::cache::NodeCache;
 use fractalmind::db::connection::DbConfig;
+use fractalmind::models::llm::BrainConfig;
+use fractalmind::models::llm::ModelBrain;
 
 #[tokio::test]
 async fn test_ingest_file_handler_multipart() {
@@ -21,10 +24,17 @@ async fn test_ingest_file_handler_multipart() {
 
     // Build a minimal AppState. DB connection is not used because we set TEST_SKIP_DB_WRITES
     // Create a ModelBrain without health checks (providers created but not used because embedding is disabled)
-    let brain = ModelBrain::new_without_health_check(BrainConfig::default_local()).expect("Failed to create brain");
+    let brain = ModelBrain::new_without_health_check(BrainConfig::default_local())
+        .expect("Failed to create brain");
 
     // Create dummy DB config placeholder (not connected)
-    let db_cfg = DbConfig::from_env().unwrap_or_else(|_| DbConfig { url: "http://127.0.0.1:8000".to_string(), username: "root".to_string(), password: "root".to_string(), namespace: "fractalmind".to_string(), database: "knowledge".to_string() });
+    let db_cfg = DbConfig::from_env().unwrap_or_else(|_| DbConfig {
+        url: "http://127.0.0.1:8000".to_string(),
+        username: "root".to_string(),
+        password: "root".to_string(),
+        namespace: "fractalmind".to_string(),
+        database: "knowledge".to_string(),
+    });
 
     // We won't actually connect to DB — the field type DatabaseConnection is required in AppState but won't be used.
     // For tests, we create a temporary connection by attempting to connect; if it fails, skip the test to avoid CI flakes.
@@ -32,7 +42,10 @@ async fn test_ingest_file_handler_multipart() {
         Ok(db) => Some(db),
         Err(e) => {
             // Skip test gracefully if DB not available
-            info!("SurrealDB not available for integration test: {}. Skipping handler test.", e);
+            info!(
+                "SurrealDB not available for integration test: {}. Skipping handler test.",
+                e
+            );
             return;
         }
     };
@@ -59,13 +72,20 @@ async fn test_ingest_file_handler_multipart() {
     let req = Request::builder()
         .method("POST")
         .uri("/v1/ingest/file")
-        .header(header::CONTENT_TYPE, format!("multipart/form-data; boundary={}", boundary))
+        .header(
+            header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={}", boundary),
+        )
         .body(Body::from(body))
         .unwrap();
 
     let resp = app.oneshot(req).await.expect("router oneshot failed");
     let status = resp.status();
-    assert!(status.is_success(), "Expected success status, got {}", status);
+    assert!(
+        status.is_success(),
+        "Expected success status, got {}",
+        status
+    );
 
     // Convert response body to bytes (limit 64KB)
     let bytes = body::to_bytes(resp.into_body(), 64 * 1024).await.unwrap();

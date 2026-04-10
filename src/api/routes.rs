@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 use axum::{
-    extract::{DefaultBodyLimit, State, ws::WebSocketUpgrade},
+    extract::{ws::WebSocketUpgrade, DefaultBodyLimit, State},
     routing::{delete, get, patch, post},
     Router,
 };
@@ -46,14 +46,34 @@ async fn ws_stream(
     let initial_status = SystemStatus {
         overall: "checking".to_string(),
         services: vec![
-            handlers::ServiceStatus { name: "surrealdb".to_string(), healthy: false, message: None },
-            handlers::ServiceStatus { name: "ollama".to_string(), healthy: false, message: None },
-            handlers::ServiceStatus { name: "chat_provider".to_string(), healthy: false, message: None },
-            handlers::ServiceStatus { name: "searxng".to_string(), healthy: false, message: None },
+            handlers::ServiceStatus {
+                name: "surrealdb".to_string(),
+                healthy: false,
+                message: None,
+            },
+            handlers::ServiceStatus {
+                name: "ollama".to_string(),
+                healthy: false,
+                message: None,
+            },
+            handlers::ServiceStatus {
+                name: "chat_provider".to_string(),
+                healthy: false,
+                message: None,
+            },
+            handlers::ServiceStatus {
+                name: "searxng".to_string(),
+                healthy: false,
+                message: None,
+            },
         ],
     };
     let msg = serde_json::to_string(&initial_status).unwrap_or_default();
-    if socket.send(axum::extract::ws::Message::Text(msg)).await.is_err() {
+    if socket
+        .send(axum::extract::ws::Message::Text(msg))
+        .await
+        .is_err()
+    {
         return;
     }
 

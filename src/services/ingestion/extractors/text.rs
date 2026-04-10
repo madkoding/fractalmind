@@ -182,7 +182,9 @@ impl ContentExtractor for TextExtractor {
 
         // Add warning if lossy conversion occurred
         if String::from_utf8(data.to_vec()).is_err() {
-            result.add_warning("Some characters were replaced during encoding conversion".to_string());
+            result.add_warning(
+                "Some characters were replaced during encoding conversion".to_string(),
+            );
         }
 
         Ok(result)
@@ -287,10 +289,16 @@ mod tests {
         );
 
         // UTF-16 LE BOM
-        assert_eq!(extractor.detect_encoding(&[0xFF, 0xFE, 0x00, 0x00]), "utf-16-le");
+        assert_eq!(
+            extractor.detect_encoding(&[0xFF, 0xFE, 0x00, 0x00]),
+            "utf-16-le"
+        );
 
         // UTF-16 BE BOM
-        assert_eq!(extractor.detect_encoding(&[0xFE, 0xFF, 0x00, 0x00]), "utf-16-be");
+        assert_eq!(
+            extractor.detect_encoding(&[0xFE, 0xFF, 0x00, 0x00]),
+            "utf-16-be"
+        );
 
         // No BOM (default UTF-8)
         assert_eq!(extractor.detect_encoding(b"Hello"), "utf-8");

@@ -10,24 +10,26 @@ mod models;
 mod services;
 mod utils;
 
-use std::sync::Arc;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use anyhow::Result;
 use dotenv::dotenv;
-use tokio::sync::{broadcast, RwLock};
-use tower_http::cors::{CorsLayer, Any};
 use http::Method;
+use tokio::sync::{broadcast, RwLock};
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::db::connection::DatabaseConnection;
-use crate::models::llm::{ModelBrain, BrainConfig};
-use crate::cache::{NodeCache, EmbeddingCache, CacheConfig};
 use crate::api::handlers::{AppState, SharedState, SystemStatus};
 use crate::api::progress::create_progress_tracker;
-use crate::services::{StorageManager, UploadSessionManager, UploadCleanupJob, RemScheduler, RemSchedulerConfig};
+use crate::cache::{CacheConfig, EmbeddingCache, NodeCache};
+use crate::db::connection::DatabaseConnection;
+use crate::models::llm::{BrainConfig, ModelBrain};
+use crate::services::{
+    RemScheduler, RemSchedulerConfig, StorageManager, UploadCleanupJob, UploadSessionManager,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -109,10 +111,10 @@ async fn main() -> Result<()> {
     let cache_config = CacheConfig::from_env();
     let node_cache = NodeCache::new(cache_config.clone());
     let embedding_cache = EmbeddingCache::new(cache_config);
-    
+
     // Crear progress tracker para ingestion
     let progress_tracker = create_progress_tracker();
-    
+
     // Inicializar upload manager para modelos GGUF
     info!("Initializing upload manager...");
     let storage = StorageManager::new();
@@ -121,7 +123,7 @@ async fn main() -> Result<()> {
         warn!("Failed to initialize upload manager (non-fatal): {}", e);
     }
     let upload_manager = Arc::new(upload_manager);
-    
+
     // Iniciar cleanup job para sesiones de upload expiradas (cada 60 minutos)
     let cleanup_job = UploadCleanupJob::new(upload_manager.clone(), 60);
     let _cleanup_handle = cleanup_job.start();
@@ -132,8 +134,10 @@ async fn main() -> Result<()> {
     if rem_config.enabled {
         // Clonar db y brain para el scheduler
         let db_clone = db::connection::connect_db(&db_config).await?;
-        let brain_clone = ModelBrain::new_without_health_check(BrainConfig::from_env().unwrap_or_else(|_| BrainConfig::default_local()))?;
-        
+        let brain_clone = ModelBrain::new_without_health_check(
+            BrainConfig::from_env().unwrap_or_else(|_| BrainConfig::default_local()),
+        )?;
+
         let rem_scheduler = Arc::new(RemScheduler::new(rem_config.clone(), db_clone, brain_clone));
         let _rem_handle = rem_scheduler.start();
         info!(
@@ -167,7 +171,11 @@ async fn main() -> Result<()> {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
         loop {
             interval.tick().await;
-            let status = state_for_task.read().await.check_all_services_health().await;
+            let status = state_for_task
+                .read()
+                .await
+                .check_all_services_health()
+                .await;
             state_for_task.read().await.broadcast_status(status);
         }
     });

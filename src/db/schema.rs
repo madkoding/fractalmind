@@ -17,7 +17,7 @@ pub async fn initialize_schema(db: &DatabaseConnection) -> Result<()> {
 
     // Definir namespaces y scopes
     define_namespaces(db).await?;
-    
+
     // Definir tablas para modelos fractales
     define_fractal_models_tables(db).await?;
 

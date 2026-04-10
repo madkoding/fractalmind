@@ -31,7 +31,12 @@ impl OllamaEmbedding {
         }
     }
 
-    pub fn with_api_key(base_url: String, model_name: String, dimension: usize, api_key: String) -> Self {
+    pub fn with_api_key(
+        base_url: String,
+        model_name: String,
+        dimension: usize,
+        api_key: String,
+    ) -> Self {
         Self {
             client: Client::new(),
             base_url,
@@ -78,7 +83,8 @@ impl EmbeddingProvider for OllamaEmbedding {
 
         let mut request_builder_v2 = self.client.post(&url_v2).json(&request_v2);
         if let Some(ref api_key) = self.api_key {
-            request_builder_v2 = request_builder_v2.header("Authorization", format!("Bearer {}", api_key));
+            request_builder_v2 =
+                request_builder_v2.header("Authorization", format!("Bearer {}", api_key));
         }
 
         let response_v2 = request_builder_v2
@@ -108,7 +114,8 @@ impl EmbeddingProvider for OllamaEmbedding {
 
             let mut request_builder_v1 = self.client.post(&url_v1).json(&request_v1);
             if let Some(ref api_key) = self.api_key {
-                request_builder_v1 = request_builder_v1.header("Authorization", format!("Bearer {}", api_key));
+                request_builder_v1 =
+                    request_builder_v1.header("Authorization", format!("Bearer {}", api_key));
             }
 
             let response_v1 = request_builder_v1
@@ -170,11 +177,12 @@ impl EmbeddingProvider for OllamaEmbedding {
     async fn health_check(&self) -> Result<bool> {
         let url = format!("{}/api/tags", self.base_url);
         let mut request_builder = self.client.get(&url);
-        
+
         if let Some(ref api_key) = self.api_key {
-            request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+            request_builder =
+                request_builder.header("Authorization", format!("Bearer {}", api_key));
         }
-        
+
         match request_builder.send().await {
             Ok(response) => Ok(response.status().is_success()),
             Err(e) => {
@@ -196,12 +204,7 @@ pub struct OllamaChat {
 }
 
 impl OllamaChat {
-    pub fn new(
-        base_url: String,
-        model_name: String,
-        temperature: f32,
-        max_tokens: u32,
-    ) -> Self {
+    pub fn new(base_url: String, model_name: String, temperature: f32, max_tokens: u32) -> Self {
         Self {
             client: Client::new(),
             base_url,
@@ -291,13 +294,11 @@ impl ChatProvider for OllamaChat {
 
         debug!("Sending chat request to Ollama: {}", url);
 
-        let mut request_builder = self
-            .client
-            .post(&url)
-            .json(&request);
+        let mut request_builder = self.client.post(&url).json(&request);
 
         if let Some(ref api_key) = self.api_key {
-            request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+            request_builder =
+                request_builder.header("Authorization", format!("Bearer {}", api_key));
         }
 
         let response = request_builder
@@ -337,11 +338,12 @@ impl ChatProvider for OllamaChat {
     async fn health_check(&self) -> Result<bool> {
         let url = format!("{}/api/tags", self.base_url);
         let mut request_builder = self.client.get(&url);
-        
+
         if let Some(ref api_key) = self.api_key {
-            request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+            request_builder =
+                request_builder.header("Authorization", format!("Bearer {}", api_key));
         }
-        
+
         match request_builder.send().await {
             Ok(response) => Ok(response.status().is_success()),
             Err(e) => {
@@ -363,12 +365,7 @@ pub struct OllamaSummarizer {
 }
 
 impl OllamaSummarizer {
-    pub fn new(
-        base_url: String,
-        model_name: String,
-        temperature: f32,
-        max_tokens: u32,
-    ) -> Self {
+    pub fn new(base_url: String, model_name: String, temperature: f32, max_tokens: u32) -> Self {
         Self {
             client: Client::new(),
             base_url,
@@ -438,13 +435,11 @@ impl SummarizerProvider for OllamaSummarizer {
 
         debug!("Sending summarization request to Ollama");
 
-        let mut request_builder = self
-            .client
-            .post(&url)
-            .json(&request);
+        let mut request_builder = self.client.post(&url).json(&request);
 
         if let Some(ref api_key) = self.api_key {
-            request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+            request_builder =
+                request_builder.header("Authorization", format!("Bearer {}", api_key));
         }
 
         let response = request_builder
@@ -477,11 +472,12 @@ impl SummarizerProvider for OllamaSummarizer {
     async fn health_check(&self) -> Result<bool> {
         let url = format!("{}/api/tags", self.base_url);
         let mut request_builder = self.client.get(&url);
-        
+
         if let Some(ref api_key) = self.api_key {
-            request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+            request_builder =
+                request_builder.header("Authorization", format!("Bearer {}", api_key));
         }
-        
+
         match request_builder.send().await {
             Ok(response) => Ok(response.status().is_success()),
             Err(e) => {

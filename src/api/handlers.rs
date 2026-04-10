@@ -5,23 +5,26 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::{extract::{State, Multipart}, Json};
-use serde::{Deserialize};
+use axum::{
+    extract::{Multipart, State},
+    Json,
+};
+use serde::Deserialize;
 use serde_json;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::services::ingestion::extractors::{ExtractorFactory, ContentExtractor};
-use crate::services::ingestion::config::{FileType, IngestionConfig};
+use crate::db::queries::{EdgeRepository, NodeRepository};
 use crate::services::ingestion::chunker::TextChunker;
+use crate::services::ingestion::config::{FileType, IngestionConfig};
+use crate::services::ingestion::extractors::{ContentExtractor, ExtractorFactory};
 use crate::services::FractalBuilder;
-use crate::db::queries::{NodeRepository, EdgeRepository};
 
 use crate::cache::{EmbeddingCache, NodeCache};
 use crate::db::connection::DatabaseConnection;
 use crate::models::llm::ModelBrain;
-use crate::models::{EmbeddingVector, FractalNode, FractalEdge, NodeMetadata, NodeStatus};
+use crate::models::{EmbeddingVector, FractalEdge, FractalNode, NodeMetadata, NodeStatus};
 use surrealdb::sql::Thing;
 
 use super::error::{ApiError, ApiErrorCode, ApiResult};
@@ -54,9 +57,9 @@ pub struct AppState {
     pub node_cache: NodeCache,
 
     pub embedding_cache: EmbeddingCache,
-    
+
     pub progress_tracker: ProgressTracker,
-    
+
     pub upload_manager: Arc<UploadSessionManager>,
 
     pub status_sender: broadcast::Sender<SystemStatus>,
@@ -97,7 +100,11 @@ impl AppState {
         services.push(ServiceStatus {
             name: "surrealdb".to_string(),
             healthy: db_healthy,
-            message: if db_healthy { None } else { Some("Connection failed".to_string()) },
+            message: if db_healthy {
+                None
+            } else {
+                Some("Connection failed".to_string())
+            },
         });
 
         // Check Ollama (local embedding)
@@ -105,7 +112,11 @@ impl AppState {
         services.push(ServiceStatus {
             name: "ollama".to_string(),
             healthy: ollama_healthy,
-            message: if ollama_healthy { None } else { Some("Not responding".to_string()) },
+            message: if ollama_healthy {
+                None
+            } else {
+                Some("Not responding".to_string())
+            },
         });
 
         // Check Chat provider
@@ -113,7 +124,11 @@ impl AppState {
         services.push(ServiceStatus {
             name: "chat_provider".to_string(),
             healthy: chat_healthy,
-            message: if chat_healthy { None } else { Some("Not responding".to_string()) },
+            message: if chat_healthy {
+                None
+            } else {
+                Some("Not responding".to_string())
+            },
         });
 
         // Check SearXNG (web search)
@@ -125,7 +140,11 @@ impl AppState {
         services.push(ServiceStatus {
             name: "searxng".to_string(),
             healthy: searxng_healthy,
-            message: if searxng_healthy { None } else { Some("Not responding".to_string()) },
+            message: if searxng_healthy {
+                None
+            } else {
+                Some("Not responding".to_string())
+            },
         });
 
         // Determine overall status
@@ -196,11 +215,15 @@ pub async fn ingest(
 
     // Validate request
     if request.content.trim().is_empty() {
-        return Err(ApiError::ValidationError(ApiErrorCode::ValidationEmptyContent));
+        return Err(ApiError::ValidationError(
+            ApiErrorCode::ValidationEmptyContent,
+        ));
     }
 
     let state = state.read().await;
-    let namespace = request.namespace.unwrap_or_else(|| "global_knowledge".to_string());
+    let namespace = request
+        .namespace
+        .unwrap_or_else(|| "global_knowledge".to_string());
 
     debug!("Ingesting content into namespace: {}", namespace);
 
@@ -228,7 +251,9 @@ pub async fn ingest(
                 embedding_response.embedding,
                 crate::models::EmbeddingModel::NomicEmbedTextV15,
             );
-            state.embedding_cache.put(&request.content, embedding_vector.clone());
+            state
+                .embedding_cache
+                .put(&request.content, embedding_vector.clone());
             (embedding_vector, embedding_response.dimension, false)
         };
 
@@ -268,13 +293,19 @@ pub async fn ingest(
         .with_summaries(false)
         .with_min_nodes(3);
     let fractal_builder = FractalBuilder::new(&state.db, config);
-    let fractal_msg = match fractal_builder.build_for_namespace(&namespace_clone, Some(&state.brain)).await {
+    let fractal_msg = match fractal_builder
+        .build_for_namespace(&namespace_clone, Some(&state.brain))
+        .await
+    {
         Ok(result) if result.parent_nodes_created > 0 => {
             info!(
                 "Fractal structure updated: {} parent nodes, {} edges",
                 result.parent_nodes_created, result.edges_created
             );
-            format!(" + fractal updated ({} parents)", result.parent_nodes_created)
+            format!(
+                " + fractal updated ({} parents)",
+                result.parent_nodes_created
+            )
         }
         Ok(_) => String::new(),
         Err(e) => {
@@ -289,7 +320,10 @@ pub async fn ingest(
         embedding_dimension: Some(embedding_dimension),
         latency_ms: start.elapsed().as_millis() as u64,
         message: if embedding_from_cache {
-            format!("Content ingested successfully (embedding from cache){}", fractal_msg)
+            format!(
+                "Content ingested successfully (embedding from cache){}",
+                fractal_msg
+            )
         } else {
             format!("Content ingested successfully{}", fractal_msg)
         },
@@ -332,10 +366,9 @@ pub async fn ingest_file(
                 file_bytes = Some(data);
             }
             Some("namespace") => {
-                let txt = field
-                    .text()
-                    .await
-                    .map_err(|e| ApiError::BadRequest(format!("Failed to read namespace: {}", e)))?;
+                let txt = field.text().await.map_err(|e| {
+                    ApiError::BadRequest(format!("Failed to read namespace: {}", e))
+                })?;
                 if !txt.trim().is_empty() {
                     namespace = Some(txt);
                 }
@@ -368,13 +401,16 @@ pub async fn ingest_file(
         }
     }
 
-    let file_bytes =
-        file_bytes.ok_or(ApiError::ValidationError(ApiErrorCode::ValidationMissingFileField))?;
+    let file_bytes = file_bytes.ok_or(ApiError::ValidationError(
+        ApiErrorCode::ValidationMissingFileField,
+    ))?;
 
     // Size check
     let file_size = file_bytes.len();
     if !config.is_size_allowed(file_size) {
-        return Err(ApiError::ValidationError(ApiErrorCode::ValidationFileSizeExceeded));
+        return Err(ApiError::ValidationError(
+            ApiErrorCode::ValidationFileSizeExceeded,
+        ));
     }
 
     // Determine file type
@@ -389,7 +425,9 @@ pub async fn ingest_file(
     };
 
     if !file_type.is_supported() {
-        return Err(ApiError::ValidationError(ApiErrorCode::ValidationUnsupportedFileType));
+        return Err(ApiError::ValidationError(
+            ApiErrorCode::ValidationUnsupportedFileType,
+        ));
     }
 
     // Choose extractor
@@ -397,14 +435,19 @@ pub async fn ingest_file(
         FileType::Text => ExtractorFactory::text(),
         FileType::Pdf => {
             if !config.enable_pdf {
-                return Err(ApiError::ValidationError(ApiErrorCode::TechnicalIngestionProcess));
+                return Err(ApiError::ValidationError(
+                    ApiErrorCode::TechnicalIngestionProcess,
+                ));
             }
-            ExtractorFactory::create(FileType::Pdf)
-                .ok_or(ApiError::ValidationError(ApiErrorCode::TechnicalIngestionExtract))?
+            ExtractorFactory::create(FileType::Pdf).ok_or(ApiError::ValidationError(
+                ApiErrorCode::TechnicalIngestionExtract,
+            ))?
         }
         FileType::Image => {
             if !config.enable_ocr {
-                return Err(ApiError::ValidationError(ApiErrorCode::TechnicalIngestionProcess));
+                return Err(ApiError::ValidationError(
+                    ApiErrorCode::TechnicalIngestionProcess,
+                ));
             }
             #[cfg(feature = "ocr")]
             {
@@ -417,7 +460,11 @@ pub async fn ingest_file(
                 ));
             }
         }
-        _ => return Err(ApiError::ValidationError(ApiErrorCode::ValidationUnsupportedFileType)),
+        _ => {
+            return Err(ApiError::ValidationError(
+                ApiErrorCode::ValidationUnsupportedFileType,
+            ))
+        }
     };
 
     // Run extraction
@@ -427,7 +474,9 @@ pub async fn ingest_file(
         .map_err(|e| ApiError::InternalError(format!("Extraction failed: {}", e)))?;
 
     if !extraction.is_successful() {
-        return Err(ApiError::TechnicalError(ApiErrorCode::TechnicalIngestionExtract));
+        return Err(ApiError::TechnicalError(
+            ApiErrorCode::TechnicalIngestionExtract,
+        ));
     }
 
     // Use provided namespace or default
@@ -436,7 +485,7 @@ pub async fn ingest_file(
     // Chunk the extracted text to avoid exceeding embedding model context limits
     let chunker = TextChunker::from_config(&config);
     let chunking_result = chunker.chunk(&extraction.text);
-    
+
     info!(
         "Chunked document into {} chunks (original: {} chars, avg chunk: {} chars)",
         chunking_result.count(),
@@ -451,13 +500,17 @@ pub async fn ingest_file(
         .map(|v| v == "true")
         .unwrap_or(false);
 
-    let skip_db = std::env::var("TEST_SKIP_DB_WRITES").map(|v| v == "true").unwrap_or(false);
+    let skip_db = std::env::var("TEST_SKIP_DB_WRITES")
+        .map(|v| v == "true")
+        .unwrap_or(false);
     let node_repo = NodeRepository::new(&state.db);
 
     // Process each chunk
     let mut created_node_ids: Vec<String> = Vec::new();
     let mut embedding_dimension: Option<usize> = None;
-    let source_filename = filename.clone().unwrap_or_else(|| "uploaded_file".to_string());
+    let source_filename = filename
+        .clone()
+        .unwrap_or_else(|| "uploaded_file".to_string());
 
     for chunk in chunking_result.chunks {
         // Generate embedding for this chunk
@@ -473,16 +526,14 @@ pub async fn ingest_file(
                 latency_ms: 0,
             }
         } else {
-            state
-                .brain
-                .embed(&chunk.content)
-                .await
-                .map_err(|e| ApiError::EmbeddingError(format!(
+            state.brain.embed(&chunk.content).await.map_err(|e| {
+                ApiError::EmbeddingError(format!(
                     "Embedding failed for chunk {}/{}: {}",
                     chunk.index + 1,
                     chunk.total,
                     e
-                )))?
+                ))
+            })?
         };
 
         embedding_dimension = Some(embedding_response.dimension);
@@ -492,7 +543,9 @@ pub async fn ingest_file(
             embedding_response.embedding.clone(),
             crate::models::EmbeddingModel::NomicEmbedTextV15,
         );
-        state.embedding_cache.put(&chunk.content, embedding_vector.clone());
+        state
+            .embedding_cache
+            .put(&chunk.content, embedding_vector.clone());
 
         // Prepare metadata for this chunk
         let mut metadata = NodeMetadata::default();
@@ -513,7 +566,9 @@ pub async fn ingest_file(
             metadata.tags = t.clone();
         }
         // Add chunk info to metadata tags
-        metadata.tags.push(format!("chunk:{}/{}", chunk.index + 1, chunk.total));
+        metadata
+            .tags
+            .push(format!("chunk:{}/{}", chunk.index + 1, chunk.total));
 
         // Create node for this chunk
         let node = FractalNode::new_leaf(
@@ -528,15 +583,14 @@ pub async fn ingest_file(
         let node_id = if skip_db {
             Uuid::new_v4().to_string()
         } else {
-            let created = node_repo
-                .create(&node)
-                .await
-                .map_err(|e| ApiError::DatabaseError(format!(
+            let created = node_repo.create(&node).await.map_err(|e| {
+                ApiError::DatabaseError(format!(
                     "Failed to create node for chunk {}/{}: {}",
                     chunk.index + 1,
                     chunk.total,
                     e
-                )))?;
+                ))
+            })?;
             created.to_string()
         };
 
@@ -553,12 +607,18 @@ pub async fn ingest_file(
 
     // Auto-build fractal structure after ingestion
     let fractal_result = if !skip_db && total_chunks > 0 {
-        info!("Auto-building fractal structure for namespace '{}'", namespace);
+        info!(
+            "Auto-building fractal structure for namespace '{}'",
+            namespace
+        );
         let config = crate::services::FractalBuilderConfig::new()
             .with_summaries(false)
             .with_min_nodes(3);
         let fractal_builder = FractalBuilder::new(&state.db, config);
-        match fractal_builder.build_for_namespace(&namespace, Some(&state.brain)).await {
+        match fractal_builder
+            .build_for_namespace(&namespace, Some(&state.brain))
+            .await
+        {
             Ok(result) => {
                 info!(
                     "Fractal structure built: {} parent nodes, {} edges",
@@ -603,7 +663,9 @@ pub async fn remember(
     Json(request): Json<RememberRequest>,
 ) -> ApiResult<Json<RememberResponse>> {
     if request.content.trim().is_empty() {
-        return Err(ApiError::ValidationError(ApiErrorCode::ValidationEmptyContent));
+        return Err(ApiError::ValidationError(
+            ApiErrorCode::ValidationEmptyContent,
+        ));
     }
 
     let _start = Instant::now();
@@ -634,7 +696,7 @@ pub async fn remember(
             embedding_response.embedding.clone(),
             crate::models::EmbeddingModel::NomicEmbedTextV15,
         );
-        
+
         // Cache the embedding
         state.embedding_cache.put(&request.content, vector.clone());
         vector
@@ -648,7 +710,7 @@ pub async fn remember(
         tags: vec!["episodic".to_string(), "memory".to_string()],
         ..Default::default()
     };
-    
+
     if let Some(context) = &request.context {
         metadata.tags.push(format!("context:{}", context));
     }
@@ -741,11 +803,15 @@ pub async fn ask(
     let start = Instant::now();
 
     if request.question.trim().is_empty() {
-        return Err(ApiError::ValidationError(ApiErrorCode::ValidationEmptyQuestion));
+        return Err(ApiError::ValidationError(
+            ApiErrorCode::ValidationEmptyQuestion,
+        ));
     }
 
     if request.question.len() > 10000 {
-        return Err(ApiError::ValidationError(ApiErrorCode::ValidationQuestionTooLong));
+        return Err(ApiError::ValidationError(
+            ApiErrorCode::ValidationQuestionTooLong,
+        ));
     }
 
     let state = state.read().await;
@@ -760,18 +826,18 @@ pub async fn ask(
         request.question, namespace, max_results
     );
 
-    let query_embedding = state
-        .brain
-        .embed(&request.question)
-        .await
-        .map_err(|e| {
-            error!("Embedding failed: {}", e);
-            ApiError::TechnicalError(ApiErrorCode::TechnicalEmbeddingGenerate)
-                .with_technical_detail(e.to_string())
-        })?;
+    let query_embedding = state.brain.embed(&request.question).await.map_err(|e| {
+        error!("Embedding failed: {}", e);
+        ApiError::TechnicalError(ApiErrorCode::TechnicalEmbeddingGenerate)
+            .with_technical_detail(e.to_string())
+    })?;
 
     let node_repo = NodeRepository::new(&state.db);
-    debug!("Searching for similar nodes in namespace '{}' with {} max results", namespace, max_results * 2);
+    debug!(
+        "Searching for similar nodes in namespace '{}' with {} max results",
+        namespace,
+        max_results * 2
+    );
     let search_results = node_repo
         .search_similar(&query_embedding.embedding, namespace, max_results * 2)
         .await
@@ -787,8 +853,18 @@ pub async fn ask(
     let search_results_empty = search_results.is_empty();
 
     let (filtered_results, used_sssp) = if has_fractal && search_results.len() > 1 {
-        debug!("Running SSSP navigation with {} initial results", search_results.len());
-        let result = navigate_with_sssp(search_results.clone(), threshold, max_results, &node_repo, &edge_repo).await;
+        debug!(
+            "Running SSSP navigation with {} initial results",
+            search_results.len()
+        );
+        let result = navigate_with_sssp(
+            search_results.clone(),
+            threshold,
+            max_results,
+            &node_repo,
+            &edge_repo,
+        )
+        .await;
         debug!("SSSP navigation completed");
         result
     } else {
@@ -876,7 +952,11 @@ pub async fn ask(
             )
         };
 
-        debug!("Calling chat with system prompt ({} chars) and question: {}", system_prompt.len(), request.question);
+        debug!(
+            "Calling chat with system prompt ({} chars) and question: {}",
+            system_prompt.len(),
+            request.question
+        );
         match state
             .brain
             .chat_with_system(&system_prompt, &request.question)
@@ -895,12 +975,20 @@ pub async fn ask(
     } else {
         if context.is_empty() {
             if search_results_empty {
-                return Err(ApiError::BusinessError(ApiErrorCode::BusinessEmptyKnowledgeBase));
+                return Err(ApiError::BusinessError(
+                    ApiErrorCode::BusinessEmptyKnowledgeBase,
+                ));
             } else {
-                return Err(ApiError::BusinessError(ApiErrorCode::BusinessNoSearchResults));
+                return Err(ApiError::BusinessError(
+                    ApiErrorCode::BusinessNoSearchResults,
+                ));
             }
         } else {
-            Some(format!("Found {} relevant sources:\n\n{}", filtered_results.len(), context))
+            Some(format!(
+                "Found {} relevant sources:\n\n{}",
+                filtered_results.len(),
+                context
+            ))
         }
     };
 
@@ -966,14 +1054,17 @@ pub async fn sync_rem(
     // 2. Build fractal hierarchy using RAPTOR if we have enough nodes
     if enable_clustering && leaf_nodes.len() >= 3 {
         info!("Building fractal hierarchy with RAPTOR clustering...");
-        
+
         let config = crate::services::FractalBuilderConfig::new()
-            .with_summaries(true)  // Enable LLM summaries for parent nodes
+            .with_summaries(true) // Enable LLM summaries for parent nodes
             .with_min_nodes(3);
-        
+
         let fractal_builder = crate::services::FractalBuilder::new(&state.db, config);
-        
-        match fractal_builder.build_for_namespace(namespace, Some(&state.brain)).await {
+
+        match fractal_builder
+            .build_for_namespace(namespace, Some(&state.brain))
+            .await
+        {
             Ok(result) => {
                 nodes_created = result.parent_nodes_created;
                 clusters_formed = result.edges_created;
@@ -1021,42 +1112,47 @@ pub async fn memory_update(
     Json(request): Json<MemoryUpdateRequest>,
 ) -> ApiResult<Json<MemoryUpdateResponse>> {
     if request.node_id.trim().is_empty() {
-        return Err(ApiError::ValidationError(ApiErrorCode::ValidationEmptyContent));
+        return Err(ApiError::ValidationError(
+            ApiErrorCode::ValidationEmptyContent,
+        ));
     }
 
     let state = state.read().await;
     let node_repo = NodeRepository::new(&state.db);
-    
-    let thing = parse_thing_from_string(&request.node_id)
-        .ok_or(ApiError::ValidationError(ApiErrorCode::ValidationEmptyContent))?;
+
+    let thing = parse_thing_from_string(&request.node_id).ok_or(ApiError::ValidationError(
+        ApiErrorCode::ValidationEmptyContent,
+    ))?;
 
     let mut node = node_repo
         .get_by_id(&thing)
         .await
-        .map_err(|e| ApiError::TechnicalError(ApiErrorCode::TechnicalDbQuery)
-            .with_technical_detail(e.to_string()))?
+        .map_err(|e| {
+            ApiError::TechnicalError(ApiErrorCode::TechnicalDbQuery)
+                .with_technical_detail(e.to_string())
+        })?
         .ok_or(ApiError::NotFoundError(ApiErrorCode::NotFoundMemoryNode))?;
 
     let mut updated_fields = Vec::new();
 
     if let Some(content) = &request.content {
         node.content = content.clone();
-        
+
         if let Some(_embedding_text) = request.regenerate_embedding {
-            let embedding_response = state
-                .brain
-                .embed(&node.content)
-                .await
-                .map_err(|e| ApiError::EmbeddingError(format!("Failed to regenerate embedding: {}", e)))?;
+            let embedding_response = state.brain.embed(&node.content).await.map_err(|e| {
+                ApiError::EmbeddingError(format!("Failed to regenerate embedding: {}", e))
+            })?;
 
             node.embedding = EmbeddingVector::new(
                 embedding_response.embedding.clone(),
                 crate::models::EmbeddingModel::NomicEmbedTextV15,
             );
-            
-            state.embedding_cache.put(&node.content, node.embedding.clone());
+
+            state
+                .embedding_cache
+                .put(&node.content, node.embedding.clone());
         }
-        
+
         updated_fields.push("content".to_string());
         if request.regenerate_embedding == Some(true) {
             updated_fields.push("embedding".to_string());
@@ -1064,8 +1160,7 @@ pub async fn memory_update(
     }
 
     if let Some(status) = &request.status {
-        let parsed_status = NodeStatus::try_from(status.clone())
-            .map_err(ApiError::BadRequest)?;
+        let parsed_status = NodeStatus::try_from(status.clone()).map_err(ApiError::BadRequest)?;
         node.status = parsed_status;
         updated_fields.push("status".to_string());
     }
@@ -1124,24 +1219,33 @@ pub async fn update_llm_config(
     State(state): State<SharedState>,
     Json(request): Json<UpdateLLMConfigRequest>,
 ) -> ApiResult<Json<UpdateLLMConfigResponse>> {
-    info!("Updating LLM config: provider_type={}", request.provider_type);
+    info!(
+        "Updating LLM config: provider_type={}",
+        request.provider_type
+    );
 
     let is_cloud = request.provider_type == "ollama-cloud";
-    let local_url = std::env::var("OLLAMA_BASE_URL")
-        .unwrap_or_else(|_| "http://localhost:11434".to_string());
+    let local_url =
+        std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
     let base_url = if is_cloud {
         "https://api.ollama.com".to_string()
     } else {
         local_url.clone()
     };
 
-    let embedding_model = request.embedding_model.unwrap_or_else(|| "qwen3-embedding:0.6b".to_string());
-    let chat_model = request.chat_model.unwrap_or_else(|| "llama3.2:1b".to_string());
-    let summarizer_model = request.summarizer_model.unwrap_or_else(|| "llama3.2:1b".to_string());
+    let embedding_model = request
+        .embedding_model
+        .unwrap_or_else(|| "qwen3-embedding:0.6b".to_string());
+    let chat_model = request
+        .chat_model
+        .unwrap_or_else(|| "llama3.2:1b".to_string());
+    let summarizer_model = request
+        .summarizer_model
+        .unwrap_or_else(|| "llama3.2:1b".to_string());
 
     let brain_config = {
         use crate::models::llm::config::{BrainConfig, ModelConfig, ModelProvider, ModelType};
-        
+
         let embedding_base_url = std::env::var("OLLAMA_BASE_URL")
             .unwrap_or_else(|_| "http://localhost:11434".to_string());
         let ollama_provider = ModelProvider::Ollama {
@@ -1207,7 +1311,11 @@ pub async fn update_llm_config(
 
     info!(
         "LLM config updated: provider={}, embedding={}, chat={}, summarizer={}",
-        if is_cloud { "ollama-cloud" } else { "ollama-local" },
+        if is_cloud {
+            "ollama-cloud"
+        } else {
+            "ollama-local"
+        },
         embedding_model,
         chat_model,
         summarizer_model
@@ -1217,10 +1325,18 @@ pub async fn update_llm_config(
         success: true,
         message: format!(
             "LLM provider switched to {}",
-            if is_cloud { "Ollama Cloud API" } else { "Ollama Local" }
+            if is_cloud {
+                "Ollama Cloud API"
+            } else {
+                "Ollama Local"
+            }
         ),
         config: LLMConfigStatus {
-            provider_type: if is_cloud { "ollama-cloud".to_string() } else { "ollama".to_string() },
+            provider_type: if is_cloud {
+                "ollama-cloud".to_string()
+            } else {
+                "ollama".to_string()
+            },
             ollama_base_url: base_url,
             is_cloud,
             embedding_model,
@@ -1236,23 +1352,27 @@ pub async fn update_llm_config(
 }
 
 /// Get current LLM configuration
-pub async fn get_llm_config(
-    State(state): State<SharedState>,
-) -> ApiResult<Json<LLMConfigStatus>> {
+pub async fn get_llm_config(State(state): State<SharedState>) -> ApiResult<Json<LLMConfigStatus>> {
     let brain_guard = state.read().await;
     let brain = &brain_guard.brain;
     let config = brain.get_config();
 
     let (provider_type, ollama_base_url, is_cloud) = match &config.chat_model.provider {
-        crate::models::llm::config::ModelProvider::Ollama { base_url, api_key, .. } => {
+        crate::models::llm::config::ModelProvider::Ollama {
+            base_url, api_key, ..
+        } => {
             let is_cloud = api_key.is_some();
             (
                 if is_cloud { "ollama-cloud" } else { "ollama" }.to_string(),
                 base_url.clone(),
                 is_cloud,
             )
-        },
-        _ => ("ollama".to_string(), "http://localhost:11434".to_string(), false),
+        }
+        _ => (
+            "ollama".to_string(),
+            "http://localhost:11434".to_string(),
+            false,
+        ),
     };
 
     let health_embedding = brain.check_embedding_provider_health().await;
@@ -1286,7 +1406,9 @@ pub async fn search(
     let start = Instant::now();
 
     if request.query.trim().is_empty() {
-        return Err(ApiError::ValidationError(ApiErrorCode::ValidationEmptySearchQuery));
+        return Err(ApiError::ValidationError(
+            ApiErrorCode::ValidationEmptySearchQuery,
+        ));
     }
 
     let state = state.read().await;
@@ -1368,7 +1490,9 @@ async fn check_fractal_structure(db: &DatabaseConnection) -> bool {
     match db.query(query).await {
         Ok(mut result) => {
             #[derive(serde::Deserialize)]
-            struct CountResult { cnt: i64 }
+            struct CountResult {
+                cnt: i64,
+            }
             let counts: Vec<CountResult> = result.take(0).unwrap_or_default();
             counts.first().map(|c| c.cnt > 0).unwrap_or(false)
         }
@@ -1384,7 +1508,7 @@ async fn navigate_with_sssp(
     node_repo: &NodeRepository<'_>,
     edge_repo: &EdgeRepository<'_>,
 ) -> (Vec<SearchResult>, bool) {
-    use crate::graph::{Sssp, GraphNode};
+    use crate::graph::{GraphNode, Sssp};
     use std::collections::{HashMap, HashSet};
 
     // Filter by threshold first
@@ -1405,8 +1529,10 @@ async fn navigate_with_sssp(
     // Add initial nodes to graph
     for (node, similarity) in &filtered {
         let node_id = node.id.as_ref().map(|t| t.to_string()).unwrap_or_default();
-        if node_id.is_empty() { continue; }
-        
+        if node_id.is_empty() {
+            continue;
+        }
+
         let graph_node = GraphNode::new(node_id.clone(), node.namespace.clone());
         graph.insert(node_id.clone(), graph_node);
         node_map.insert(node_id.clone(), (node.clone(), *similarity));
@@ -1423,7 +1549,8 @@ async fn navigate_with_sssp(
                     if !explored_nodes.contains(&parent_id) {
                         // Fetch parent node
                         if let Ok(Some(parent)) = node_repo.get_by_id(&edge.from).await {
-                            let graph_node = GraphNode::new(parent_id.clone(), parent.namespace.clone());
+                            let graph_node =
+                                GraphNode::new(parent_id.clone(), parent.namespace.clone());
                             graph.insert(parent_id.clone(), graph_node);
                             // Calculate similarity for parent based on edge weight
                             let parent_similarity = edge.similarity * 0.9; // Slight penalty for indirect
@@ -1455,24 +1582,25 @@ async fn navigate_with_sssp(
     // If we have enough structure, use SSSP to rank
     if graph.len() > 1 {
         let sssp = Sssp::with_defaults();
-        
+
         // Find the best starting node (highest similarity leaf)
-        let best_start = filtered.iter()
+        let best_start = filtered
+            .iter()
             .filter(|(n, _)| n.node_type == crate::models::NodeType::Leaf)
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(n, _)| n.id.as_ref().map(|t| t.to_string()).unwrap_or_default());
 
         // Fallback to first filtered node if no leaf found
         let start_id: Option<String> = best_start.or_else(|| {
-            filtered.first().and_then(|(n, _)| {
-                n.id.as_ref().map(|t| t.to_string())
-            })
+            filtered
+                .first()
+                .and_then(|(n, _)| n.id.as_ref().map(|t| t.to_string()))
         });
 
         if let Some(start_id) = start_id {
             if !start_id.is_empty() {
                 let sssp_result = sssp.compute(&graph, &start_id, None);
-                
+
                 // Combine vector similarity with graph distance for ranking
                 let mut ranked: Vec<(String, f32, Option<Vec<String>>)> = node_map
                     .iter()
@@ -1481,28 +1609,30 @@ async fn navigate_with_sssp(
                         if !sim.is_finite() || !(0.0..=1.0).contains(sim) {
                             return None;
                         }
-                        let graph_score = sssp_result.distances.get(id)
+                        let graph_score = sssp_result
+                            .distances
+                            .get(id)
                             .map(|&d| 1.0 / (1.0 + d)) // Convert distance to score
                             .unwrap_or(0.0);
-                        
+
                         // Combined score: 70% vector similarity + 30% graph proximity
                         let combined = sim * 0.7 + graph_score * 0.3;
-                        
+
                         // Skip invalid combined scores
                         if !combined.is_finite() {
                             return None;
                         }
-                        
+
                         // Get path if available
                         let path = sssp_result.reconstruct_path(&start_id, id).map(|p| p.nodes);
-                        
+
                         Some((id.clone(), combined, path))
                     })
                     .collect();
-                
+
                 // Sort by combined score
                 ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                
+
                 // Convert to results
                 let results: Vec<SearchResult> = ranked
                     .into_iter()
@@ -1523,7 +1653,7 @@ async fn navigate_with_sssp(
                         })
                     })
                     .collect();
-                
+
                 return (results, true);
             }
         }
@@ -1556,12 +1686,18 @@ pub fn parse_thing_from_string(id: &str) -> Option<surrealdb::sql::Thing> {
     if id.contains(':') {
         let parts: Vec<&str> = id.split(':').collect();
         if parts.len() == 2 {
-            Some(surrealdb::sql::Thing::from((parts[0].to_string(), parts[1].to_string())))
+            Some(surrealdb::sql::Thing::from((
+                parts[0].to_string(),
+                parts[1].to_string(),
+            )))
         } else {
             None
         }
     } else {
-        Some(surrealdb::sql::Thing::from(("nodes".to_string(), id.to_string())))
+        Some(surrealdb::sql::Thing::from((
+            "nodes".to_string(),
+            id.to_string(),
+        )))
     }
 }
 
@@ -1574,8 +1710,8 @@ pub async fn build_fractal(
     State(state): State<SharedState>,
     Json(request): Json<BuildFractalRequest>,
 ) -> ApiResult<Json<BuildFractalResponse>> {
-    use crate::services::{FractalBuilder, FractalBuilderConfig};
     use crate::graph::RaptorConfig;
+    use crate::services::{FractalBuilder, FractalBuilderConfig};
 
     let start = Instant::now();
     let state = state.read().await;
@@ -1616,17 +1752,13 @@ pub async fn build_fractal(
         latency_ms: start.elapsed().as_millis() as u64,
         message: format!(
             "Fractal structure built: {} parent nodes, {} edges, max depth {}",
-            result.parent_nodes_created,
-            result.edges_created,
-            result.max_depth
+            result.parent_nodes_created, result.edges_created, result.max_depth
         ),
     };
 
     info!(
         "Fractal build completed in {}ms: {} parent nodes, {} edges",
-        response.latency_ms,
-        response.parent_nodes_created,
-        response.edges_created
+        response.latency_ms, response.parent_nodes_created, response.edges_created
     );
 
     Ok(Json(response))
@@ -1642,14 +1774,14 @@ pub async fn stats(State(state): State<SharedState>) -> Json<StatsResponse> {
 
     let cache_metrics = state.node_cache.metrics();
     let llm_info = state.brain.get_models_info();
-    
+
     let node_repo = NodeRepository::new(&state.db);
     let edge_repo = EdgeRepository::new(&state.db);
-    
+
     let total_nodes = node_repo.count_all().await.unwrap_or(0) as usize;
     let total_edges = edge_repo.count_all_edges().await.unwrap_or(0) as usize;
     let namespaces_info = node_repo.get_namespaces().await.unwrap_or_default();
-    
+
     let namespaces: Vec<NamespaceStats> = namespaces_info
         .into_iter()
         .map(|ns| NamespaceStats {
@@ -1724,7 +1856,10 @@ mod tests {
         assert_eq!(request.status, Some("complete".to_string()));
         assert!(request.regenerate_embedding == Some(true));
         assert!(request.metadata.is_some());
-        assert_eq!(request.metadata.as_ref().unwrap().language, Some("es".to_string()));
+        assert_eq!(
+            request.metadata.as_ref().unwrap().language,
+            Some("es".to_string())
+        );
     }
 
     #[test]
@@ -1779,8 +1914,8 @@ mod tests {
 // Model Upload Handlers
 // ============================================================================
 
-use axum::extract::Path;
 use axum::body::Bytes;
+use axum::extract::Path;
 
 /// Initialize a chunked upload session
 pub async fn init_model_upload(
@@ -1789,37 +1924,43 @@ pub async fn init_model_upload(
 ) -> ApiResult<Json<InitUploadResponse>> {
     // Validate request
     if !request.filename.to_lowercase().ends_with(".gguf") {
-        return Err(ApiError::ValidationError(ApiErrorCode::ValidationEmptyContent));
+        return Err(ApiError::ValidationError(
+            ApiErrorCode::ValidationEmptyContent,
+        ));
     }
-    
+
     if request.total_size == 0 {
-        return Err(ApiError::ValidationError(ApiErrorCode::ValidationEmptyContent));
+        return Err(ApiError::ValidationError(
+            ApiErrorCode::ValidationEmptyContent,
+        ));
     }
-    
+
     // Max 500GB
     const MAX_SIZE: u64 = 500 * 1024 * 1024 * 1024;
     if request.total_size > MAX_SIZE {
-        return Err(ApiError::ValidationError(ApiErrorCode::ValidationFileSizeExceeded));
+        return Err(ApiError::ValidationError(
+            ApiErrorCode::ValidationFileSizeExceeded,
+        ));
     }
-    
+
     // Validate chunk size (10MB - 500MB)
     const MIN_CHUNK: u64 = 10 * 1024 * 1024;
     const MAX_CHUNK: u64 = 500 * 1024 * 1024;
     let chunk_size = request.chunk_size.clamp(MIN_CHUNK, MAX_CHUNK);
-    
+
     let state_read = state.read().await;
     let manager = &state_read.upload_manager;
-    
+
     let session = manager
         .init_upload(request.filename, request.total_size, Some(chunk_size))
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to init upload: {}", e)))?;
-    
+
     info!(
         "Initialized model upload: id={}, chunks={}",
         session.upload_id, session.total_chunks
     );
-    
+
     Ok(Json(InitUploadResponse {
         upload_id: session.upload_id,
         chunk_size: session.chunk_size,
@@ -1843,7 +1984,7 @@ pub async fn upload_model_chunk(
 ) -> ApiResult<Json<UploadChunkResponse>> {
     let state_read = state.read().await;
     let manager = &state_read.upload_manager;
-    
+
     let result = manager
         .upload_chunk(
             &upload_id,
@@ -1853,12 +1994,12 @@ pub async fn upload_model_chunk(
         )
         .await
         .map_err(|e| ApiError::BadRequest(format!("Chunk upload failed: {}", e)))?;
-    
+
     debug!(
         "Received chunk {} for upload {} ({}/{})",
         params.chunk_index, upload_id, result.chunks_received, result.total_chunks
     );
-    
+
     Ok(Json(UploadChunkResponse {
         success: result.success,
         chunk_index: result.chunk_index,
@@ -1874,71 +2015,84 @@ pub async fn finalize_model_upload(
 ) -> ApiResult<Json<FinalizeUploadResponse>> {
     let state_read = state.read().await;
     let manager = &state_read.upload_manager;
-    
+
     // Get session info before finalizing
     let session = manager
         .get_status(&upload_id)
         .await
         .ok_or(ApiError::NotFoundError(ApiErrorCode::NotFoundUploadSession))?;
-    
+
     let filename = session.filename.clone();
     let total_size = session.total_size;
-    
+
     // Finalize the upload (move file to final location)
     let result = manager
         .finalize(&upload_id)
         .await
         .map_err(|e| ApiError::BadRequest(format!("Finalize failed: {}", e)))?;
-    
+
     // Create the FractalModel record in the database
     let model = crate::models::llm::fractal_model::FractalModel::new(
         filename.clone(),
         result.file_path.clone(),
         total_size,
     );
-    
+
     let repo = crate::db::queries::FractalModelRepository::new(&state_read.db);
     let model_id = repo
         .create(&model)
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to create model record: {}", e)))?;
-    
+
     info!(
         "Finalized model upload: upload_id={}, model_id={}, file={}, size={}",
         upload_id, model_id, result.file_path, total_size
     );
-    
+
     // Auto-start conversion in background
     let db_clone = state_read.db.clone();
     let model_id_clone = model_id.clone();
     let file_path = result.file_path.clone();
     let upload_manager_clone = state_read.upload_manager.clone();
     let upload_id_clone = upload_id.clone();
-    
+
     tokio::spawn(async move {
         info!("Auto-starting conversion for model: {}", model_id_clone);
-        
+
         // Update status to converting
         let repo = crate::db::queries::FractalModelRepository::new(&db_clone);
-        if let Err(e) = repo.update_status(&model_id_clone, crate::models::llm::fractal_model::FractalModelStatus::Converting).await {
+        if let Err(e) = repo
+            .update_status(
+                &model_id_clone,
+                crate::models::llm::fractal_model::FractalModelStatus::Converting,
+            )
+            .await
+        {
             error!("Failed to update model status: {}", e);
             return;
         }
-        
+
         // Run conversion
         if let Err(e) = run_model_conversion(&db_clone, &model_id_clone, &file_path).await {
             error!("Model conversion failed for {}: {}", model_id_clone, e);
-            let _ = repo.update_status(&model_id_clone, crate::models::llm::fractal_model::FractalModelStatus::Failed).await;
-            let _ = upload_manager_clone.mark_failed(&upload_id_clone, &e.to_string()).await;
+            let _ = repo
+                .update_status(
+                    &model_id_clone,
+                    crate::models::llm::fractal_model::FractalModelStatus::Failed,
+                )
+                .await;
+            let _ = upload_manager_clone
+                .mark_failed(&upload_id_clone, &e.to_string())
+                .await;
             return;
         }
-        
+
         // Mark upload session as ready so frontend stops polling
         if let Err(e) = upload_manager_clone.mark_ready(&upload_id_clone).await {
             error!("Failed to mark upload as ready: {}", e);
         }
     });
-    
+
     Ok(Json(FinalizeUploadResponse {
         success: result.success,
         model_id,
@@ -1953,12 +2107,12 @@ pub async fn get_upload_status(
 ) -> ApiResult<Json<ProgressResponse>> {
     let state_read = state.read().await;
     let manager = &state_read.upload_manager;
-    
+
     let session = manager
         .get_status(&upload_id)
         .await
         .ok_or(ApiError::NotFoundError(ApiErrorCode::NotFoundUploadSession))?;
-    
+
     Ok(Json(ProgressResponse {
         upload_progress: session.upload_progress,
         conversion_progress: session.conversion_progress,
@@ -1977,14 +2131,14 @@ pub async fn cancel_model_upload(
 ) -> ApiResult<Json<CancelUploadResponse>> {
     let state_read = state.read().await;
     let manager = &state_read.upload_manager;
-    
+
     manager
         .cancel(&upload_id)
         .await
         .map_err(|e| ApiError::InternalError(format!("Cancel failed: {}", e)))?;
-    
+
     info!("Cancelled model upload: {}", upload_id);
-    
+
     Ok(Json(CancelUploadResponse {
         success: true,
         message: "Upload cancelled and temporary files cleaned up".to_string(),
@@ -1998,18 +2152,18 @@ pub async fn upload_progress_stream(
 ) -> impl axum::response::IntoResponse {
     use axum::response::sse::{Event, KeepAlive, Sse};
     use std::convert::Infallible;
-    
+
     // Clone the Arc to move into the async stream
     let manager = state.read().await.upload_manager.clone();
-    
+
     let stream = async_stream::stream! {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
-        
+
         loop {
             interval.tick().await;
-            
+
             let session = manager.get_status(&upload_id).await;
-            
+
             match session {
                 Some(s) => {
                     let progress = ProgressResponse {
@@ -2021,13 +2175,13 @@ pub async fn upload_progress_stream(
                         total_chunks: Some(s.total_chunks),
                         current_phase: s.current_phase.clone(),
                     };
-                    
+
                     let json = serde_json::to_string(&progress).unwrap_or_default();
                     yield Ok::<_, Infallible>(Event::default().data(json));
-                    
+
                     // Stop when ready or failed
-                    if s.status == crate::models::upload_session::UploadStatus::Ready 
-                        || s.status == crate::models::upload_session::UploadStatus::Failed 
+                    if s.status == crate::models::upload_session::UploadStatus::Ready
+                        || s.status == crate::models::upload_session::UploadStatus::Failed
                     {
                         break;
                     }
@@ -2043,7 +2197,7 @@ pub async fn upload_progress_stream(
             }
         }
     };
-    
+
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
@@ -2056,30 +2210,30 @@ use crate::models::llm::fractal_model::FractalModelStatus;
 
 /// List available Ollama models
 pub async fn list_ollama_models() -> ApiResult<Json<ListOllamaModelsResponse>> {
-    let ollama_base_url = std::env::var("OLLAMA_BASE_URL")
-        .unwrap_or_else(|_| "http://localhost:11434".to_string());
-    
+    let ollama_base_url =
+        std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
+
     let client = reqwest::Client::new();
     let url = format!("{}/api/tags", ollama_base_url);
-    
+
     let response = client
         .get(&url)
         .send()
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to connect to Ollama: {}", e)))?;
-    
+
     if !response.status().is_success() {
         return Err(ApiError::InternalError(format!(
             "Ollama returned error: {}",
             response.status()
         )));
     }
-    
+
     #[derive(Deserialize)]
     struct OllamaTagsResponse {
         models: Vec<OllamaTagModel>,
     }
-    
+
     #[derive(Deserialize)]
     struct OllamaTagModel {
         name: String,
@@ -2089,7 +2243,7 @@ pub async fn list_ollama_models() -> ApiResult<Json<ListOllamaModelsResponse>> {
         digest: String,
         details: Option<OllamaTagDetails>,
     }
-    
+
     #[derive(Deserialize)]
     struct OllamaTagDetails {
         parent_model: Option<String>,
@@ -2099,12 +2253,12 @@ pub async fn list_ollama_models() -> ApiResult<Json<ListOllamaModelsResponse>> {
         parameter_size: Option<String>,
         quantization_level: Option<String>,
     }
-    
+
     let ollama_response: OllamaTagsResponse = response
         .json()
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to parse Ollama response: {}", e)))?;
-    
+
     let models: Vec<OllamaModelInfo> = ollama_response
         .models
         .into_iter()
@@ -2124,22 +2278,20 @@ pub async fn list_ollama_models() -> ApiResult<Json<ListOllamaModelsResponse>> {
             }),
         })
         .collect();
-    
+
     Ok(Json(ListOllamaModelsResponse { models }))
 }
 
 /// List all fractal models
-pub async fn list_models(
-    State(state): State<SharedState>,
-) -> ApiResult<Json<ListModelsResponse>> {
+pub async fn list_models(State(state): State<SharedState>) -> ApiResult<Json<ListModelsResponse>> {
     let state_read = state.read().await;
     let repo = FractalModelRepository::new(&state_read.db);
-    
+
     let models = repo
         .list_all()
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to list models: {}", e)))?;
-    
+
     let model_infos: Vec<ModelInfo> = models
         .into_iter()
         .map(|m| ModelInfo {
@@ -2157,7 +2309,7 @@ pub async fn list_models(
             created_at: m.created_at.to_rfc3339(),
         })
         .collect();
-    
+
     Ok(Json(ListModelsResponse {
         models: model_infos,
     }))
@@ -2170,13 +2322,13 @@ pub async fn get_model(
 ) -> ApiResult<Json<GetModelResponse>> {
     let state_read = state.read().await;
     let repo = FractalModelRepository::new(&state_read.db);
-    
+
     let model = repo
         .get_by_id(&model_id)
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to get model: {}", e)))?
         .ok_or(ApiError::NotFoundError(ApiErrorCode::NotFoundMemoryNode))?;
-    
+
     Ok(Json(GetModelResponse {
         model: ModelInfo {
             id: model.id,
@@ -2202,26 +2354,26 @@ pub async fn delete_model(
 ) -> ApiResult<Json<DeleteModelResponse>> {
     let state_read = state.read().await;
     let repo = FractalModelRepository::new(&state_read.db);
-    
+
     // Get the model first to get the file path
     let model = repo
         .get_by_id(&model_id)
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to get model: {}", e)))?
         .ok_or(ApiError::NotFoundError(ApiErrorCode::NotFoundMemoryNode))?;
-    
+
     // Delete from database (also deletes associated nodes)
     repo.delete(&model_id)
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to delete model: {}", e)))?;
-    
+
     // Try to delete the file (don't fail if file doesn't exist)
     if let Err(e) = tokio::fs::remove_file(&model.file_path).await {
         warn!("Failed to delete model file {}: {}", model.file_path, e);
     }
-    
+
     info!("Deleted model: {} ({})", model_id, model.name);
-    
+
     Ok(Json(DeleteModelResponse {
         success: true,
         message: format!("Model {} deleted successfully", model_id),
@@ -2235,48 +2387,60 @@ pub async fn convert_model(
 ) -> ApiResult<Json<ConvertModelResponse>> {
     let state_read = state.read().await;
     let repo = FractalModelRepository::new(&state_read.db);
-    
+
     // Get the model
     let model = repo
         .get_by_id(&model_id)
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to get model: {}", e)))?
         .ok_or(ApiError::NotFoundError(ApiErrorCode::NotFoundMemoryNode))?;
-    
+
     // Check if already converting or ready
     match model.status {
         FractalModelStatus::Converting => {
-            return Err(ApiError::BadRequest("Model is already being converted".to_string()));
+            return Err(ApiError::BadRequest(
+                "Model is already being converted".to_string(),
+            ));
         }
         FractalModelStatus::Ready => {
-            return Err(ApiError::BadRequest("Model is already converted and ready".to_string()));
+            return Err(ApiError::BadRequest(
+                "Model is already converted and ready".to_string(),
+            ));
         }
         _ => {}
     }
-    
+
     // Update status to converting
     repo.update_status(&model_id, FractalModelStatus::Converting)
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to update model status: {}", e)))?;
-    
+
     // Spawn async conversion task
     let db_clone = state_read.db.clone();
     let model_id_clone = model_id.clone();
     let file_path = model.file_path.clone();
-    
+
     tokio::spawn(async move {
         if let Err(e) = run_model_conversion(&db_clone, &model_id_clone, &file_path).await {
             error!("Model conversion failed for {}: {}", model_id_clone, e);
             let repo = FractalModelRepository::new(&db_clone);
-            let _ = repo.update_status(&model_id_clone, FractalModelStatus::Failed).await;
+            let _ = repo
+                .update_status(&model_id_clone, FractalModelStatus::Failed)
+                .await;
         }
     });
-    
-    info!("Started conversion for model: {} ({})", model_id, model.name);
-    
+
+    info!(
+        "Started conversion for model: {} ({})",
+        model_id, model.name
+    );
+
     Ok(Json(ConvertModelResponse {
         success: true,
-        message: format!("Conversion started for model {}. Monitor progress via /v1/models/{}/status", model_id, model_id),
+        message: format!(
+            "Conversion started for model {}. Monitor progress via /v1/models/{}/status",
+            model_id, model_id
+        ),
     }))
 }
 
@@ -2293,16 +2457,16 @@ async fn run_model_conversion(
     _file_path: &str, // No longer needed, service gets it from model
 ) -> Result<(), anyhow::Error> {
     let repo = FractalModelRepository::new(db);
-    
+
     // Get the model from database
     let mut model = repo
         .get_by_id(model_id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
-    
+
     // Create conversion service and run real conversion
     let conversion_service = ModelConversionService::new(std::sync::Arc::new(db.clone()));
     conversion_service.convert_model(&mut model).await?;
-    
+
     Ok(())
 }

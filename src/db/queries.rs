@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
 use super::connection::DatabaseConnection;
-use crate::models::{FractalNode, FractalEdge, NodeStatus};
-use crate::models::llm::fractal_model::{FractalModel, FractalModelStatus, FractalModelNode};
+use crate::models::llm::fractal_model::{FractalModel, FractalModelNode, FractalModelStatus};
+use crate::models::{FractalEdge, FractalNode, NodeStatus};
 use anyhow::{Context, Result};
 use surrealdb::sql::Thing;
 
@@ -26,12 +26,8 @@ impl<'a> NodeRepository<'a> {
 
     /// Crea un nuevo nodo
     pub async fn create(&self, node: &FractalNode) -> Result<Thing> {
-        let result = self
-            .db
-            .create("nodes")
-            .content(node)
-            .await;
-        
+        let result = self.db.create("nodes").content(node).await;
+
         match result {
             Ok(created) => {
                 let nodes: Vec<FractalNode> = created;
@@ -95,7 +91,8 @@ impl<'a> NodeRepository<'a> {
 
     /// Actualiza un nodo
     pub async fn update(&self, id: &Thing, node: &FractalNode) -> Result<()> {
-        let _: Option<FractalNode> = self.db
+        let _: Option<FractalNode> = self
+            .db
             .update(id)
             .content(node)
             .await
@@ -106,11 +103,7 @@ impl<'a> NodeRepository<'a> {
 
     /// Elimina un nodo
     pub async fn delete(&self, id: &Thing) -> Result<()> {
-        let _: Option<FractalNode> = self
-            .db
-            .delete(id)
-            .await
-            .context("Failed to delete node")?;
+        let _: Option<FractalNode> = self.db.delete(id).await.context("Failed to delete node")?;
 
         Ok(())
     }
@@ -269,17 +262,20 @@ impl<'a> NodeRepository<'a> {
         }
 
         let groups: Vec<NamespaceGroup> = result.take(0)?;
-        
+
         let mut namespaces = Vec::new();
         for group in groups {
-            let edge_count = self.count_edges_by_namespace(&group.namespace).await.unwrap_or(0);
+            let edge_count = self
+                .count_edges_by_namespace(&group.namespace)
+                .await
+                .unwrap_or(0);
             namespaces.push(NamespaceInfo {
                 name: group.namespace,
                 node_count: group.node_count,
                 edge_count,
             });
         }
-        
+
         Ok(namespaces)
     }
 
@@ -346,12 +342,8 @@ impl<'a> EdgeRepository<'a> {
 
     /// Crea una nueva arista
     pub async fn create(&self, edge: &FractalEdge) -> Result<Thing> {
-        let result = self
-            .db
-            .create("edges")
-            .content(edge)
-            .await;
-        
+        let result = self.db.create("edges").content(edge).await;
+
         match result {
             Ok(created) => {
                 let edges: Vec<FractalEdge> = created;
@@ -362,8 +354,12 @@ impl<'a> EdgeRepository<'a> {
             }
             Err(e) => {
                 tracing::error!("SurrealDB edge create error: {:?}", e);
-                tracing::error!("Edge data: from={:?}, to={:?}, type={:?}", 
-                    edge.from, edge.to, edge.edge_type);
+                tracing::error!(
+                    "Edge data: from={:?}, to={:?}, type={:?}",
+                    edge.from,
+                    edge.to,
+                    edge.edge_type
+                );
                 Err(anyhow::anyhow!("Failed to create edge: {}", e))
             }
         }
@@ -399,11 +395,7 @@ impl<'a> EdgeRepository<'a> {
 
     /// Elimina una arista
     pub async fn delete(&self, id: &Thing) -> Result<()> {
-        let _: Option<FractalEdge> = self
-            .db
-            .delete(id)
-            .await
-            .context("Failed to delete edge")?;
+        let _: Option<FractalEdge> = self.db.delete(id).await.context("Failed to delete edge")?;
 
         Ok(())
     }
@@ -463,8 +455,11 @@ impl<'a> FractalModelRepository<'a> {
     /// Crea un nuevo modelo fractal
     pub async fn create(&self, model: &FractalModel) -> Result<String> {
         // Extract just the ID part without the table prefix
-        let id_part = model.id.strip_prefix("fractal_models:").unwrap_or(&model.id);
-        
+        let id_part = model
+            .id
+            .strip_prefix("fractal_models:")
+            .unwrap_or(&model.id);
+
         let query = r#"
             CREATE type::thing("fractal_models", $id) SET
                 name = $name,
@@ -514,7 +509,7 @@ impl<'a> FractalModelRepository<'a> {
     pub async fn get_by_id(&self, id: &str) -> Result<Option<FractalModel>> {
         // Extract just the ID part without the table prefix
         let id_part = id.strip_prefix("fractal_models:").unwrap_or(id);
-        
+
         let query = "SELECT * FROM type::thing(\"fractal_models\", $id)";
         let mut result = self
             .db
@@ -669,10 +664,10 @@ impl<'a> FractalModelRepository<'a> {
     pub async fn delete(&self, id: &str) -> Result<Option<FractalModel>> {
         // First get the model to return it
         let model = self.get_by_id(id).await?;
-        
+
         // Extract just the ID part without the table prefix
         let id_part = id.strip_prefix("fractal_models:").unwrap_or(id);
-        
+
         // Delete from database using type::thing
         let query = "DELETE type::thing(\"fractal_models\", $id)";
         self.db
@@ -745,12 +740,12 @@ impl<'a> FractalModelNodeRepository<'a> {
     /// Crea múltiples nodos en batch
     pub async fn create_batch(&self, nodes: &[FractalModelNode]) -> Result<Vec<String>> {
         let mut ids = Vec::with_capacity(nodes.len());
-        
+
         for node in nodes {
             let id = self.create(node).await?;
             ids.push(id);
         }
-        
+
         Ok(ids)
     }
 
@@ -904,13 +899,10 @@ impl<'a> FractalModelNodeRepository<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{NodeMetadata, EmbeddingVector, EmbeddingModel};
+    use crate::models::{EmbeddingModel, EmbeddingVector, NodeMetadata};
 
     fn create_test_node() -> FractalNode {
-        let embedding = EmbeddingVector::new(
-            vec![0.1; 768],
-            EmbeddingModel::NomicEmbedTextV15,
-        );
+        let embedding = EmbeddingVector::new(vec![0.1; 768], EmbeddingModel::NomicEmbedTextV15);
 
         FractalNode::new_leaf(
             "Test content".to_string(),

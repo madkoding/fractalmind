@@ -38,22 +38,22 @@
 #![allow(dead_code)]
 
 pub mod config;
+pub mod fractal_builder;
 pub mod ingestion;
+pub mod model_conversion;
 pub mod rem_phase;
 pub mod rem_scheduler;
 pub mod storage;
 pub mod upload;
 pub mod web_search;
-pub mod model_conversion;
-pub mod fractal_builder;
 
 // Re-exports
 pub use config::{RemPhaseConfig, WebSearchConfig};
-pub use fractal_builder::{FractalBuilder, FractalBuilderConfig, FractalBuildResult};
+pub use fractal_builder::{FractalBuildResult, FractalBuilder, FractalBuilderConfig};
 pub use rem_phase::{
     RemPhaseResult, RemPhaseService, RemPhaseServiceBuilder, RemPhaseStatus, SearchStats,
 };
-pub use rem_scheduler::{RemScheduler, RemSchedulerConfig, RemSchedulerStatus, RemRunResult};
+pub use rem_scheduler::{RemRunResult, RemScheduler, RemSchedulerConfig, RemSchedulerStatus};
 pub use web_search::{
     MockSearchProvider, SearchResponse, SearchResult, WebSearchFactory, WebSearchProvider,
 };
@@ -69,5 +69,6 @@ pub use model_conversion::ModelConversionService;
 
 // Storage and upload re-exports
 pub use storage::StorageManager;
-pub use upload::{UploadSessionManager, UploadConfig, UploadCleanupJob, ChunkResult, FinalizeResult};
-
+pub use upload::{
+    ChunkResult, FinalizeResult, UploadCleanupJob, UploadConfig, UploadSessionManager,
+};

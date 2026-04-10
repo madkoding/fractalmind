@@ -4,7 +4,6 @@
 /// 1. Generar embeddings
 /// 2. Hacer consultas de chat
 /// 3. Resumir textos (fase REM)
-
 use fractalmind::models::llm::{BrainConfig, ModelBrain};
 
 #[tokio::main]
@@ -47,7 +46,10 @@ async fn example_local_config() -> anyhow::Result<()> {
     let brain = ModelBrain::new(config).await?;
 
     let info = brain.get_models_info();
-    println!("Embedding Model: {} ({}D)", info.embedding_model, info.embedding_dimension);
+    println!(
+        "Embedding Model: {} ({}D)",
+        info.embedding_model, info.embedding_dimension
+    );
     println!("Chat Model: {}", info.chat_model);
     println!("Summarizer Model: {}", info.summarizer_model);
     println!("Fully Local: {}", brain.is_fully_local());
@@ -62,8 +64,7 @@ async fn example_hybrid_config() -> anyhow::Result<()> {
     println!("2. Configuración Híbrida (Ollama + OpenAI)");
     println!("===========================================\n");
 
-    let api_key = std::env::var("OPENAI_API_KEY")
-        .expect("OPENAI_API_KEY no configurado");
+    let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY no configurado");
 
     let config = BrainConfig::hybrid(api_key);
     let brain = ModelBrain::new(config).await?;
@@ -126,12 +127,11 @@ async fn example_chat_with_context() -> anyhow::Result<()> {
     let config = BrainConfig::default_local();
     let brain = ModelBrain::new(config).await?;
 
-    let system_prompt = "Eres un experto en sistemas de memoria artificial y grafos de conocimiento.";
+    let system_prompt =
+        "Eres un experto en sistemas de memoria artificial y grafos de conocimiento.";
     let user_question = "Explica cómo funciona RAPTOR en 2 frases.";
 
-    let response = brain
-        .chat_with_system(system_prompt, user_question)
-        .await?;
+    let response = brain.chat_with_system(system_prompt, user_question).await?;
 
     println!("Sistema: {}", system_prompt);
     println!("Usuario: {}", user_question);
