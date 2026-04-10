@@ -8,7 +8,7 @@ interface ChatState {
   conversations: Conversation[];
   currentConversationId: string | null;
   isLoading: boolean;
-  error: string | null;
+  error: unknown | null;
 
   // Actions
   createConversation: () => string;
@@ -107,8 +107,9 @@ export const useChatStore = create<ChatState>()(
           const assistantMessage: Message = {
             id: generateId(),
             role: 'assistant',
-            content: `${response.answer}\n\n(${i18n.t('chat.resolvedIn', { ms: latencyMs })})`,
+            content: response.answer,
             timestamp: Date.now(),
+            latency_ms: latencyMs,
           };
 
           set((state) => ({
@@ -126,7 +127,7 @@ export const useChatStore = create<ChatState>()(
         } catch (error) {
           set({
             isLoading: false,
-            error: error instanceof Error ? error.message : i18n.t('chat.unknownError'),
+            error: error instanceof Error ? error : new Error(i18n.t('chat.unknownError')),
           });
         }
       },

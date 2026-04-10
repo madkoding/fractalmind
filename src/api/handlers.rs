@@ -163,6 +163,77 @@ impl AppState {
 /// Thread-safe shared state
 pub type SharedState = Arc<RwLock<AppState>>;
 
+/// Performs all service health checks without holding a lock.
+/// Pass in clones of `db` and `brain` obtained while briefly holding the lock.
+pub async fn check_services_health(db: &DatabaseConnection, brain: &ModelBrain) -> SystemStatus {
+    let mut services = Vec::new();
+
+    // Check SurrealDB
+    let db_healthy = crate::db::connection::check_connection(db)
+        .await
+        .unwrap_or(false);
+    services.push(ServiceStatus {
+        name: "surrealdb".to_string(),
+        healthy: db_healthy,
+        message: if db_healthy {
+            None
+        } else {
+            Some("Connection failed".to_string())
+        },
+    });
+
+    // Check Ollama (local embedding)
+    let ollama_healthy = brain.check_embedding_provider_health().await;
+    services.push(ServiceStatus {
+        name: "ollama".to_string(),
+        healthy: ollama_healthy,
+        message: if ollama_healthy {
+            None
+        } else {
+            Some("Not responding".to_string())
+        },
+    });
+
+    // Check Chat provider
+    let chat_healthy = brain.check_chat_provider_health().await;
+    services.push(ServiceStatus {
+        name: "chat_provider".to_string(),
+        healthy: chat_healthy,
+        message: if chat_healthy {
+            None
+        } else {
+            Some("Not responding".to_string())
+        },
+    });
+
+    // Check SearXNG (web search)
+    let search_config = crate::services::config::WebSearchConfig::from_env();
+    let searxng_healthy = crate::services::web_search::WebSearchFactory::create(search_config)
+        .health_check()
+        .await
+        .unwrap_or(false);
+    services.push(ServiceStatus {
+        name: "searxng".to_string(),
+        healthy: searxng_healthy,
+        message: if searxng_healthy {
+            None
+        } else {
+            Some("Not responding".to_string())
+        },
+    });
+
+    // Determine overall status
+    let overall = if services.iter().all(|s| s.healthy) {
+        "healthy".to_string()
+    } else if services.iter().filter(|s| !s.healthy).count() == 1 {
+        "degraded".to_string()
+    } else {
+        "unhealthy".to_string()
+    };
+
+    SystemStatus { overall, services }
+}
+
 // ============================================================================
 // Health Check Handler
 // ============================================================================

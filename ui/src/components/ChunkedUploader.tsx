@@ -18,7 +18,7 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
   const [uploadId, setUploadId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -163,7 +163,7 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
 
       // Progress polling will detect completion and notify parent
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('uploader.error.uploadFailed'));
+      setError(err instanceof Error ? err : new Error(t('uploader.error.uploadFailed')));
       setUploading(false);
       
       // Cancel upload on server
@@ -350,7 +350,7 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
       )}
 
       {/* Error */}
-      {error && (
+      {error != null && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 flex items-start gap-3">
           <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
           <div className="flex-1">

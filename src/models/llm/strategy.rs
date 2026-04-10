@@ -32,6 +32,10 @@ pub struct FractalModelStrategyConfig {
     pub graph_weight: f32,
     /// URL base para Ollama
     pub ollama_base_url: String,
+    /// Nombre del modelo de embedding en Ollama
+    pub ollama_embedding_model: String,
+    /// Dimensión del vector de embedding (depende del modelo)
+    pub ollama_embedding_dimension: usize,
     /// Temperatura para chat
     pub chat_temperature: f32,
     /// Máximo de tokens para chat
@@ -50,6 +54,8 @@ impl Default for FractalModelStrategyConfig {
             vector_weight: 0.7,
             graph_weight: 0.3,
             ollama_base_url: "http://localhost:11434".to_string(),
+            ollama_embedding_model: "nomic-embed-text".to_string(),
+            ollama_embedding_dimension: 768,
             chat_temperature: 0.7,
             chat_max_tokens: 2048,
             summarizer_temperature: 0.3,
@@ -108,10 +114,20 @@ impl FractalModelStrategyConfig {
         let ollama_base_url = std::env::var("OLLAMA_BASE_URL")
             .unwrap_or_else(|_| "http://localhost:11434".to_string());
 
+        let ollama_embedding_model = std::env::var("OLLAMA_EMBEDDING_MODEL")
+            .unwrap_or_else(|_| "nomic-embed-text".to_string());
+
+        let ollama_embedding_dimension = std::env::var("OLLAMA_EMBEDDING_DIMENSION")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(768);
+
         Self {
             default_namespace,
             max_results,
             ollama_base_url,
+            ollama_embedding_model,
+            ollama_embedding_dimension,
             ..Default::default()
         }
     }
@@ -287,22 +303,23 @@ impl FractalModelStrategy {
 #[async_trait]
 impl ModelStrategy for FractalModelStrategy {
     async fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<EmbeddingResponse>> {
-        use crate::embeddings::config::EmbeddingConfig;
-        use crate::embeddings::EmbeddingService;
-        use crate::models::EmbeddingModel;
+        use super::providers::OllamaEmbedding;
+        use super::traits_llm::EmbeddingProvider;
 
-        let config = EmbeddingConfig::with_model(EmbeddingModel::NomicEmbedTextV15);
-        let service = EmbeddingService::with_mock(config);
-        let results = service.embed_batch(&texts).await?;
+        let provider = OllamaEmbedding::new(
+            self.config.ollama_base_url.clone(),
+            self.config.ollama_embedding_model.clone(),
+            self.config.ollama_embedding_dimension,
+        );
+        let embeddings = provider.embed_batch(&texts).await?;
 
-        Ok(results
-            .embeddings
+        Ok(embeddings
             .into_iter()
             .map(|emb| EmbeddingResponse {
-                embedding: emb.vector,
+                embedding: emb.embedding,
                 dimension: emb.dimension,
-                model: self.model_id.clone(),
-                latency_ms: 0,
+                model: self.config.ollama_embedding_model.clone(),
+                latency_ms: emb.latency_ms,
             })
             .collect())
     }

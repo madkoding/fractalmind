@@ -12,7 +12,22 @@ interface ChatMessageProps {
 export function ChatMessage({ message }: ChatMessageProps) {
   const { t, i18n } = useTranslation();
   const isUser = message.role === 'user';
-  const resolvedMatch = message.content.match(/\((?:Resolved in|Resuelto en|Resolvido em) \d+ ms\)/);
+
+  // For new messages: latency_ms is stored on the message
+  // For legacy messages (pre-migration): detect a locale-agnostic pattern like "(... NNN ms)"
+  const legacyLatencyMatch =
+    message.latency_ms === undefined
+      ? message.content.match(/\(.*?(\d+) ms\)$/)
+      : null;
+  const legacyLatencyMs = legacyLatencyMatch ? parseInt(legacyLatencyMatch[1], 10) : undefined;
+
+  const latencyMs = message.latency_ms ?? legacyLatencyMs;
+
+  // Strip the legacy latency annotation from the content if present
+  const displayContent =
+    legacyLatencyMatch
+      ? message.content.replace(/\n*\(.*?\d+ ms\)$/, '').trimEnd()
+      : message.content;
 
   return (
     <div
@@ -44,8 +59,8 @@ export function ChatMessage({ message }: ChatMessageProps) {
           <span className="text-xs text-gray-500">
             {new Date(message.timestamp).toLocaleTimeString(i18n.language)}
           </span>
-          {message.role === 'assistant' && resolvedMatch && (
-            <span className="ml-2 text-xs text-gray-400">{resolvedMatch[0].slice(1, -1)}</span>
+          {message.role === 'assistant' && latencyMs !== undefined && (
+            <span className="ml-2 text-xs text-gray-400">{t('chat.resolvedIn', { ms: latencyMs })}</span>
           )}
         </div>
         {isUser ? (
@@ -151,7 +166,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
                 ),
               }}
             >
-              {message.content}
+              {displayContent}
             </ReactMarkdown>
           </div>
         )}

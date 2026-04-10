@@ -22,9 +22,20 @@ const ERROR_CODE_MAP: Record<string, string> = {
 };
 
 export function parseApiError(error: unknown): string {
+  if (typeof error === 'string') {
+    return error;
+  }
   if (error instanceof Error) {
+    // First check for a structured error code attached by ApiClient
+    const code = (error as { code?: string }).code;
+    if (code) {
+      const key = ERROR_CODE_MAP[code];
+      if (key) return key;
+    }
+
     const msg = error.message;
-    
+
+    // Legacy: try decoding JSON embedded in "API Error:" messages
     if (msg.startsWith('API Error:')) {
       try {
         const json = JSON.parse(msg.replace(/^API Error: \d+ - /, ''));
@@ -37,7 +48,7 @@ export function parseApiError(error: unknown): string {
         if (text.length < 200) return text;
       }
     }
-    
+
     return msg;
   }
   return 'errors.unknown';

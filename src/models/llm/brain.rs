@@ -28,6 +28,17 @@ pub struct ModelBrain {
     config: BrainConfig,
 }
 
+impl Clone for ModelBrain {
+    fn clone(&self) -> Self {
+        Self {
+            embedding_provider: self.embedding_provider.clone(),
+            chat_provider: self.chat_provider.clone(),
+            summarizer_provider: self.summarizer_provider.clone(),
+            config: self.config.clone(),
+        }
+    }
+}
+
 impl ModelBrain {
     /// Crea un nuevo cerebro desde configuración
     pub async fn new(config: BrainConfig) -> Result<Self> {

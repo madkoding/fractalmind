@@ -22,7 +22,7 @@ use tower_http::trace::TraceLayer;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::api::handlers::{AppState, SharedState, SystemStatus};
+use crate::api::handlers::{check_services_health, AppState, SharedState, SystemStatus};
 use crate::api::progress::create_progress_tracker;
 use crate::cache::{CacheConfig, EmbeddingCache, NodeCache};
 use crate::db::connection::DatabaseConnection;
@@ -162,8 +162,13 @@ async fn main() -> Result<()> {
     let state: SharedState = Arc::new(RwLock::new(app_state));
 
     // Broadcast initial status
-    let initial_status = state.read().await.check_all_services_health().await;
-    state.read().await.broadcast_status(initial_status);
+    // Clone needed data briefly under the lock, then release it before async health checks.
+    let (initial_db, initial_brain, initial_sender) = {
+        let g = state.read().await;
+        (g.db.clone(), g.brain.clone(), g.status_sender.clone())
+    };
+    let initial_status = check_services_health(&initial_db, &initial_brain).await;
+    let _ = initial_sender.send(initial_status);
 
     // Spawn background task for periodic health checks
     let state_for_task = state.clone();
@@ -171,12 +176,13 @@ async fn main() -> Result<()> {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
         loop {
             interval.tick().await;
-            let status = state_for_task
-                .read()
-                .await
-                .check_all_services_health()
-                .await;
-            state_for_task.read().await.broadcast_status(status);
+            // Clone what we need under the lock, then drop the guard before async calls.
+            let (db, brain, sender) = {
+                let g = state_for_task.read().await;
+                (g.db.clone(), g.brain.clone(), g.status_sender.clone())
+            };
+            let status = check_services_health(&db, &brain).await;
+            let _ = sender.send(status);
         }
     });
 

@@ -17,6 +17,7 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
   const {
     language,
     languageMode,
+    apiUrl,
     setLanguage,
     setLanguageMode,
   } = useSettingsStore();
@@ -67,7 +68,7 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
       }
       socket?.close();
     };
-  }, []);
+  }, [apiUrl]);
 
   const services = useMemo(() => {
     const defaults: ServiceStatus[] = [
@@ -153,7 +154,7 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
       <div className="p-4 border-t border-gray-700">
         <div className="mb-3 rounded-lg border border-gray-700 bg-gray-900/60 p-2">
           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
-            Servicios
+            {t('sidebar.services')}
           </div>
           <div className="space-y-1.5">
             {services.map((service) => (
@@ -166,7 +167,7 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
                       service.healthy ? 'bg-green-400 shadow-[0_0_8px_#4ade80]' : 'bg-red-400 shadow-[0_0_8px_#f87171]'
                     )}
                   />
-                  {service.healthy ? 'ok' : 'down'}
+                  {service.healthy ? t('sidebar.serviceOk') : t('sidebar.serviceDown')}
                 </span>
               </div>
             ))}

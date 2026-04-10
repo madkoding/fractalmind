@@ -5,6 +5,7 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
+  latency_ms?: number;
 }
 
 export interface AskRequest {

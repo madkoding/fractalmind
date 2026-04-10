@@ -21,7 +21,7 @@ export function ChatArea() {
 
   // Clear error after 5 seconds
   useEffect(() => {
-    if (error) {
+    if (error != null) {
       const timer = setTimeout(clearError, 5000);
       return () => clearTimeout(timer);
     }
@@ -49,7 +49,7 @@ export function ChatArea() {
       </div>
 
       {/* Error display */}
-      {error && (
+      {error != null && (
         <div className="px-4 py-2 bg-red-900/50 border-t border-red-800 text-red-200 text-sm">
           {getErrorMessage(error, t)}
         </div>
