@@ -319,7 +319,7 @@ impl ModelConversionService {
 
         let layers_per_group = std::cmp::max(1, n_layers / 6);
         
-        for group_idx in 0..((n_layers + layers_per_group - 1) / layers_per_group) {
+        for group_idx in 0..n_layers.div_ceil(layers_per_group) {
             let start = group_idx * layers_per_group;
             let end = std::cmp::min(start + layers_per_group - 1, n_layers.saturating_sub(1));
             
@@ -591,7 +591,7 @@ impl ModelConversionService {
     fn sample_q4_tensor(mmap: &Mmap, offset: usize, size: u64, step: usize, samples: &mut Vec<f32>) {
         let block_size = 32;
         let bytes_per_block = 18;
-        let num_blocks = (size as usize + block_size - 1) / block_size;
+        let num_blocks = (size as usize).div_ceil(block_size);
 
         for block_idx in (0..num_blocks).step_by(std::cmp::max(1, step / block_size)).take(64) {
             let block_offset = offset + block_idx * bytes_per_block;
@@ -618,7 +618,7 @@ impl ModelConversionService {
     fn sample_q8_tensor(mmap: &Mmap, offset: usize, size: u64, step: usize, samples: &mut Vec<f32>) {
         let block_size = 32;
         let bytes_per_block = 34;
-        let num_blocks = (size as usize + block_size - 1) / block_size;
+        let num_blocks = (size as usize).div_ceil(block_size);
 
         for block_idx in (0..num_blocks).step_by(std::cmp::max(1, step / block_size)).take(64) {
             let block_offset = offset + block_idx * bytes_per_block;

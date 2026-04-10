@@ -57,7 +57,6 @@ async fn ws_stream(
         return;
     }
 
-    let mut ping_count = 0usize;
     loop {
         tokio::select! {
             result = subscriber.recv() => {
@@ -73,7 +72,7 @@ async fn ws_stream(
                 }
             }
             _ = tokio::time::sleep(tokio::time::Duration::from_secs(30)) => {
-                if socket.send(axum::extract::ws::Message::Ping(vec![].into())).await.is_err() {
+                if socket.send(axum::extract::ws::Message::Ping(vec![])).await.is_err() {
                     break;
                 }
             }

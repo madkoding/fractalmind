@@ -62,7 +62,7 @@ pub fn load_secrets() -> SecretsConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::tempfile::TempDir;
+    use tempfile::TempDir;
 
     #[test]
     fn test_load_nonexistent_file() {

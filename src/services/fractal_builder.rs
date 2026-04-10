@@ -319,14 +319,16 @@ impl<'a> FractalBuilder<'a> {
             }
         };
 
-        let mut metadata = NodeMetadata::default();
-        metadata.source = "fractal_builder".to_string();
-        metadata.source_type = SourceType::Synthetic;
-        metadata.tags = vec![
-            format!("depth:{}", depth),
-            format!("children:{}", tree_node.children.len()),
-            format!("cluster:{}", tree_node.cluster_id),
-        ];
+        let metadata = NodeMetadata {
+            source: "fractal_builder".to_string(),
+            source_type: SourceType::Synthetic,
+            tags: vec![
+                format!("depth:{}", depth),
+                format!("children:{}", tree_node.children.len()),
+                format!("cluster:{}", tree_node.cluster_id),
+            ],
+            ..Default::default()
+        };
 
         Ok(FractalNode::new_parent(
             summary.unwrap_or_else(|| "Cluster summary".to_string()),

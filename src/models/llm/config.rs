@@ -63,7 +63,7 @@ impl ModelProvider {
     pub fn requires_api_key(&self) -> bool {
         match self {
             ModelProvider::Ollama { api_key, .. } => {
-                api_key.as_ref().map_or(false, |k| !k.is_empty())
+                api_key.as_ref().is_some_and(|k| !k.is_empty())
             }
             ModelProvider::OpenAI { .. } => true,
             ModelProvider::Anthropic { .. } => true,
@@ -241,7 +241,7 @@ impl ModelConfig {
         if self.provider.requires_api_key() {
             match &self.provider {
                 ModelProvider::Ollama { api_key, .. } => {
-                    if api_key.as_ref().map_or(true, |k| k.is_empty()) {
+                    if api_key.as_ref().is_none_or(|k| k.is_empty()) {
                         bail!("API key is required for remote provider");
                     }
                 }

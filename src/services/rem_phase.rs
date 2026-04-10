@@ -44,7 +44,7 @@ pub enum RemPhaseStatus {
 }
 
 /// Result of a REM phase run.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RemPhaseResult {
     /// Number of incomplete nodes found.
     pub incomplete_nodes_found: usize,
@@ -69,21 +69,6 @@ pub struct RemPhaseResult {
 
     /// Web search statistics.
     pub search_stats: SearchStats,
-}
-
-impl Default for RemPhaseResult {
-    fn default() -> Self {
-        Self {
-            incomplete_nodes_found: 0,
-            nodes_processed: 0,
-            nodes_created: 0,
-            nodes_updated: 0,
-            clusters_formed: 0,
-            cross_links_created: 0,
-            time_ms: 0,
-            search_stats: SearchStats::default(),
-        }
-    }
 }
 
 /// Web search statistics.
@@ -191,8 +176,10 @@ impl RemPhaseService {
             incomplete_nodes.len()
         );
 
-        let mut result = RemPhaseResult::default();
-        result.incomplete_nodes_found = incomplete_nodes.len();
+        let mut result = RemPhaseResult {
+            incomplete_nodes_found: incomplete_nodes.len(),
+            ..Default::default()
+        };
 
         // Phase 1: Process incomplete nodes
         let nodes_to_process: Vec<IncompleteNode> = incomplete_nodes
@@ -310,7 +297,7 @@ impl RemPhaseService {
 
                     // Synthesize content from search results
                     if !response.results.is_empty() {
-                        let synth = self.synthesize_from_search(&node, &response);
+                        let synth = self.synthesize_from_search(node, &response);
                         synthesized.push(synth);
                     }
                 }

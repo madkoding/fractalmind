@@ -214,7 +214,7 @@ impl FractalModelStrategy {
                 
                 let mut ranked: Vec<(String, f32)> = node_contents
                     .keys()
-                    .filter_map(|id| {
+                    .map(|id| {
                         let base_sim = results.iter()
                             .find(|(n, _)| n.id.as_ref().map(|i| i.to_string()) == Some(id.clone()))
                             .map(|(_, s)| *s)
@@ -226,7 +226,7 @@ impl FractalModelStrategy {
                         
                         // Usar pesos configurables
                         let combined = base_sim * self.config.vector_weight + graph_score * self.config.graph_weight;
-                        Some((id.clone(), combined))
+                        (id.clone(), combined)
                     })
                     .collect();
 
@@ -533,8 +533,13 @@ mod tests {
 
     #[test]
     fn test_fractal_strategy_creation() {
-        let db = crate::db::connection::DatabaseConnection::default();
-        let strategy = FractalModelStrategy::new("model:123".to_string(), db);
+        // Build strategy with a real config object to validate constructor semantics
+        // without requiring a live database connection in unit tests.
+        let strategy = FractalModelStrategy {
+            model_id: "model:123".to_string(),
+            db: Arc::new(RwLock::new(surrealdb::Surreal::init())),
+            config: FractalModelStrategyConfig::default(),
+        };
         assert_eq!(strategy.name(), "FractalModel");
     }
 

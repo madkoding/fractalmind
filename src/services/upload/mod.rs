@@ -162,7 +162,13 @@ impl UploadSessionManager {
         let chunk_size = chunk_size.clamp(self.config.min_chunk_size, self.config.max_chunk_size);
         
         // Create session
-        let session = UploadSession::new(filename, total_size, chunk_size);
+        let mut session = UploadSession::new(filename, total_size, chunk_size);
+        session.temp_path = self
+            .storage
+            .base_path()
+            .join(format!("{}.part", session.upload_id))
+            .to_string_lossy()
+            .to_string();
         let upload_id = session.upload_id.clone();
         
         // Create temp file
@@ -697,8 +703,8 @@ mod tests {
     async fn test_complete_upload_flow() {
         let (manager, _temp) = test_manager().await;
         
-        let chunk_size = 100u64;
-        let total_size = 300u64;
+        let chunk_size = MIN_CHUNK_SIZE;
+        let total_size = chunk_size * 3;
         
         let session = manager
             .init_upload("model.gguf".to_string(), total_size, Some(chunk_size))
@@ -707,7 +713,7 @@ mod tests {
         
         // Upload all chunks
         for i in 0..3 {
-            let data = bytes::Bytes::from(vec![i as u8; 100]);
+            let data = bytes::Bytes::from(vec![i as u8; chunk_size as usize]);
             manager
                 .upload_chunk(&session.upload_id, i, data, None)
                 .await

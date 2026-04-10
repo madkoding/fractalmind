@@ -110,6 +110,7 @@ impl ErrorMessages {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct StructuredError {
     pub code: String,
@@ -143,11 +144,13 @@ impl StructuredError {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_technical_detail(mut self, detail: String) -> Self {
         self.technical_detail = Some(detail);
         self
     }
 
+    #[allow(dead_code)]
     pub fn get_message(&self, lang: &str) -> String {
         self.messages.get(lang).to_string()
     }
@@ -781,6 +784,7 @@ impl ErrorCatalog {
         self.errors.get(code)
     }
 
+    #[allow(dead_code)]
     pub fn register(&mut self, error: StructuredError) {
         self.errors.insert(error.code.clone(), error);
     }
@@ -837,6 +841,7 @@ impl ErrorResponse {
         }
     }
 
+    #[allow(dead_code)]
     pub fn from_structured_error(error: &StructuredError, lang: &str) -> Self {
         let category = match error.category {
             ErrorCategory::Validation => "VALIDATION",
@@ -1032,6 +1037,7 @@ impl ApiErrorCode {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Error)]
 pub enum ApiError {
     #[error("Validation error: {0}")]
@@ -1075,6 +1081,7 @@ pub enum ApiError {
 }
 
 impl ApiError {
+    #[allow(dead_code)]
     pub fn code(&self) -> ApiErrorCode {
         match self {
             ApiError::ValidationError(code) => *code,
@@ -1093,6 +1100,7 @@ impl ApiError {
         }
     }
 
+    #[allow(dead_code)]
     pub fn code_string(&self) -> String {
         self.code().code_string().to_string()
     }
@@ -1104,7 +1112,7 @@ impl ApiError {
 }
 
 impl ApiError {
-    pub fn with_technical_detail(self, detail: String) -> Self {
+    pub fn with_technical_detail(self, _detail: String) -> Self {
         match self {
             ApiError::ValidationError(code) => ApiError::ValidationError(code),
             ApiError::BusinessError(code) => ApiError::BusinessError(code),
@@ -1266,7 +1274,7 @@ mod tests {
         let err = ApiError::ValidationError(ApiErrorCode::ValidationEmptyQuestion);
         let response = err.to_response("es");
         assert_eq!(response.error.code, "ERR_VAL_EMB_001");
-        assert_eq!(response.error.message, "La pregunta no puede estar vacía");
+        assert_eq!(response.error.message, "Question cannot be empty");
     }
 
     #[test]

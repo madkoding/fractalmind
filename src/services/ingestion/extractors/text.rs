@@ -86,7 +86,7 @@ impl TextExtractor {
                     result.push(c);
                     prev_was_newline = true;
                     prev_was_space = false;
-                } else if result.chars().last() != Some('\n') {
+                } else if !result.ends_with('\n') {
                     result.push(c);
                 }
             } else if c.is_whitespace() {

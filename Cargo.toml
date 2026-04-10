@@ -89,6 +89,7 @@ half = "2.0"
 [dev-dependencies]
 mockall = "0.13"
 criterion = "0.5"
+tempfile = "3"
 
 [features]
 default = []

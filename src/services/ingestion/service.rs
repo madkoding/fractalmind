@@ -334,8 +334,10 @@ impl IngestionService {
                 let embedding = embedding_generator(&chunk.content);
 
                 // Create metadata
-                let mut metadata = NodeMetadata::default();
-                metadata.tags = input.tags.clone();
+                let mut metadata = NodeMetadata {
+                    tags: input.tags.clone(),
+                    ..Default::default()
+                };
 
                 if let Some(src) = &input.source {
                     metadata.source = src.clone();
