@@ -204,38 +204,33 @@ pub async fn ingest(
 
     debug!("Ingesting content into namespace: {}", namespace);
 
-    // Check embedding cache first
-    if let Some(cached) = state.embedding_cache.get(&request.content) {
-        debug!("Using cached embedding");
-        let node_id = Uuid::new_v4().to_string();
+    // Check embedding cache first, but always persist the node.
+    let (embedding_vector, embedding_dimension, embedding_from_cache) =
+        if let Some(cached) = state.embedding_cache.get(&request.content) {
+            debug!("Using cached embedding");
+            let cached_dimension = cached.dimension;
+            (cached, cached_dimension, true)
+        } else {
+            // Generate embedding
+            let embedding_response = state
+                .brain
+                .embed(&request.content)
+                .await
+                .map_err(|e| ApiError::EmbeddingError(e.to_string()))?;
 
-        return Ok(Json(IngestResponse {
-            success: true,
-            node_id: Some(node_id),
-            embedding_dimension: Some(cached.dimension),
-            latency_ms: start.elapsed().as_millis() as u64,
-            message: "Content ingested (embedding from cache)".to_string(),
-        }));
-    }
+            info!(
+                "Generated embedding: {}D, latency: {}ms",
+                embedding_response.dimension, embedding_response.latency_ms
+            );
 
-    // Generate embedding
-    let embedding_response = state
-        .brain
-        .embed(&request.content)
-        .await
-        .map_err(|e| ApiError::EmbeddingError(e.to_string()))?;
-
-    info!(
-        "Generated embedding: {}D, latency: {}ms",
-        embedding_response.dimension, embedding_response.latency_ms
-    );
-
-    // Cache the embedding
-    let embedding_vector = EmbeddingVector::new(
-        embedding_response.embedding.clone(),
-        crate::models::EmbeddingModel::NomicEmbedTextV15,
-    );
-    state.embedding_cache.put(&request.content, embedding_vector.clone());
+            // Cache the embedding
+            let embedding_vector = EmbeddingVector::new(
+                embedding_response.embedding,
+                crate::models::EmbeddingModel::NomicEmbedTextV15,
+            );
+            state.embedding_cache.put(&request.content, embedding_vector.clone());
+            (embedding_vector, embedding_response.dimension, false)
+        };
 
     // Create metadata
     let mut metadata = NodeMetadata::default();
@@ -291,9 +286,13 @@ pub async fn ingest(
     Ok(Json(IngestResponse {
         success: true,
         node_id: Some(node_id),
-        embedding_dimension: Some(embedding_response.dimension),
+        embedding_dimension: Some(embedding_dimension),
         latency_ms: start.elapsed().as_millis() as u64,
-        message: format!("Content ingested successfully{}", fractal_msg),
+        message: if embedding_from_cache {
+            format!("Content ingested successfully (embedding from cache){}", fractal_msg)
+        } else {
+            format!("Content ingested successfully{}", fractal_msg)
+        },
     }))
 }
 
@@ -369,8 +368,8 @@ pub async fn ingest_file(
         }
     }
 
-    let file_bytes = file_bytes
-        .ok_or_else(|| ApiError::ValidationError(ApiErrorCode::ValidationMissingFileField))?;
+    let file_bytes =
+        file_bytes.ok_or(ApiError::ValidationError(ApiErrorCode::ValidationMissingFileField))?;
 
     // Size check
     let file_size = file_bytes.len();
@@ -401,7 +400,7 @@ pub async fn ingest_file(
                 return Err(ApiError::ValidationError(ApiErrorCode::TechnicalIngestionProcess));
             }
             ExtractorFactory::create(FileType::Pdf)
-                .ok_or_else(|| ApiError::ValidationError(ApiErrorCode::TechnicalIngestionExtract))?
+                .ok_or(ApiError::ValidationError(ApiErrorCode::TechnicalIngestionExtract))?
         }
         FileType::Image => {
             if !config.enable_ocr {
@@ -642,11 +641,13 @@ pub async fn remember(
     };
 
     // Create metadata for episodic memory
-    let mut metadata = NodeMetadata::default();
-    metadata.source = "episodic_memory".to_string();
-    metadata.source_type = crate::models::SourceType::Text;
-    metadata.language = request.language.clone().unwrap_or_else(|| "en".to_string());
-    metadata.tags = vec!["episodic".to_string(), "memory".to_string()];
+    let mut metadata = NodeMetadata {
+        source: "episodic_memory".to_string(),
+        source_type: crate::models::SourceType::Text,
+        language: request.language.clone().unwrap_or_else(|| "en".to_string()),
+        tags: vec!["episodic".to_string(), "memory".to_string()],
+        ..Default::default()
+    };
     
     if let Some(context) = &request.context {
         metadata.tags.push(format!("context:{}", context));
@@ -1027,14 +1028,14 @@ pub async fn memory_update(
     let node_repo = NodeRepository::new(&state.db);
     
     let thing = parse_thing_from_string(&request.node_id)
-        .ok_or_else(|| ApiError::ValidationError(ApiErrorCode::ValidationEmptyContent))?;
+        .ok_or(ApiError::ValidationError(ApiErrorCode::ValidationEmptyContent))?;
 
     let mut node = node_repo
         .get_by_id(&thing)
         .await
         .map_err(|e| ApiError::TechnicalError(ApiErrorCode::TechnicalDbQuery)
             .with_technical_detail(e.to_string()))?
-        .ok_or_else(|| ApiError::NotFoundError(ApiErrorCode::NotFoundMemoryNode))?;
+        .ok_or(ApiError::NotFoundError(ApiErrorCode::NotFoundMemoryNode))?;
 
     let mut updated_fields = Vec::new();
 
@@ -1064,7 +1065,7 @@ pub async fn memory_update(
 
     if let Some(status) = &request.status {
         let parsed_status = NodeStatus::try_from(status.clone())
-            .map_err(|e| ApiError::BadRequest(e))?;
+            .map_err(ApiError::BadRequest)?;
         node.status = parsed_status;
         updated_fields.push("status".to_string());
     }
@@ -1477,7 +1478,7 @@ async fn navigate_with_sssp(
                     .iter()
                     .filter_map(|(id, (_, sim))| {
                         // Skip invalid similarity values
-                        if !sim.is_finite() || sim < &0.0 || sim > &1.0 {
+                        if !sim.is_finite() || !(0.0..=1.0).contains(sim) {
                             return None;
                         }
                         let graph_score = sssp_result.distances.get(id)
@@ -1878,7 +1879,7 @@ pub async fn finalize_model_upload(
     let session = manager
         .get_status(&upload_id)
         .await
-        .ok_or_else(|| ApiError::NotFoundError(ApiErrorCode::NotFoundUploadSession))?;
+        .ok_or(ApiError::NotFoundError(ApiErrorCode::NotFoundUploadSession))?;
     
     let filename = session.filename.clone();
     let total_size = session.total_size;
@@ -1956,7 +1957,7 @@ pub async fn get_upload_status(
     let session = manager
         .get_status(&upload_id)
         .await
-        .ok_or_else(|| ApiError::NotFoundError(ApiErrorCode::NotFoundUploadSession))?;
+        .ok_or(ApiError::NotFoundError(ApiErrorCode::NotFoundUploadSession))?;
     
     Ok(Json(ProgressResponse {
         upload_progress: session.upload_progress,
@@ -2174,7 +2175,7 @@ pub async fn get_model(
         .get_by_id(&model_id)
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to get model: {}", e)))?
-        .ok_or_else(|| ApiError::NotFoundError(ApiErrorCode::NotFoundMemoryNode))?;
+        .ok_or(ApiError::NotFoundError(ApiErrorCode::NotFoundMemoryNode))?;
     
     Ok(Json(GetModelResponse {
         model: ModelInfo {
@@ -2207,7 +2208,7 @@ pub async fn delete_model(
         .get_by_id(&model_id)
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to get model: {}", e)))?
-        .ok_or_else(|| ApiError::NotFoundError(ApiErrorCode::NotFoundMemoryNode))?;
+        .ok_or(ApiError::NotFoundError(ApiErrorCode::NotFoundMemoryNode))?;
     
     // Delete from database (also deletes associated nodes)
     repo.delete(&model_id)
@@ -2240,7 +2241,7 @@ pub async fn convert_model(
         .get_by_id(&model_id)
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to get model: {}", e)))?
-        .ok_or_else(|| ApiError::NotFoundError(ApiErrorCode::NotFoundMemoryNode))?;
+        .ok_or(ApiError::NotFoundError(ApiErrorCode::NotFoundMemoryNode))?;
     
     // Check if already converting or ready
     match model.status {

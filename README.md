@@ -172,7 +172,7 @@ Key variables in `.env`:
 
 ```bash
 # Database
-SURREAL_URL=ws://localhost:8000
+SURREAL_URL=http://localhost:8000
 SURREAL_NS=fractalmind
 SURREAL_DB=knowledge
 

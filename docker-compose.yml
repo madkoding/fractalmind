@@ -29,7 +29,7 @@ services:
       - --pass=root
       - --bind
       - 0.0.0.0:8000
-      - memory
+      - file:///data/fractalmind.db
     volumes:
       - ./data/surrealdb:/data
     environment:
@@ -82,7 +82,7 @@ services:
     environment:
       - RUST_LOG=debug,fractalmind=trace
       - SERVER_PORT=9000
-      - SURREAL_URL=ws://surrealdb:8000
+      - SURREAL_URL=http://surrealdb:8000
       - SURREAL_USER=root
       - SURREAL_PASS=root
       - SURREAL_NS=fractalmind
