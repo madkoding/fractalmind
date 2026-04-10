@@ -35,12 +35,19 @@ start_docker() {
         echo -e "${GREEN}✓ Docker containers already running${NC}"
     else
         # Start searxng by default (profile enabled)
-        docker-compose up -d surrealdb searxng
+        docker-compose up -d ollama surrealdb searxng
+        
+        # Wait for Ollama and pull required local models
+        sleep 5
+        echo -e "${YELLOW}Ensuring Ollama local models...${NC}"
+        docker exec fractalmind-ollama ollama pull qwen3-embedding:0.6b 2>/dev/null || true
+        docker exec fractalmind-ollama ollama pull llama3.2:1b 2>/dev/null || true
         
         if [ $? -eq 0 ]; then
             echo -e "${GREEN}✓ Docker containers started successfully${NC}"
             echo ""
             echo -e "${GREEN}✅ Services:${NC}"
+            echo "  - ollama:    http://localhost:11434"
             echo "  - surrealdb: http://localhost:8000"
             echo "  - searxng:   http://localhost:8080 (web search)"
             echo ""
@@ -56,7 +63,7 @@ start_docker() {
 # Function to start backend
 start_backend() {
     echo -e "${YELLOW}Starting backend server...${NC}"
-    RUST_LOG=debug cargo run --features "$FEATURES" &
+    RUST_LOG=debug WEB_SEARCH_PROVIDER=searxng WEB_SEARCH_BASE_URL=http://localhost:18080 cargo run --features "$FEATURES" &
     BACKEND_PID=$!
     echo -e "${GREEN}✓ Backend started (PID: $BACKEND_PID)${NC}"
 }
@@ -96,7 +103,7 @@ case "${1:-run}" in
         echo "Services:"
         echo "  Database:  http://localhost:8000"
         echo "  SearXNG:   http://localhost:8080 (web search)"
-        echo "  Backend:   http://localhost:3000"
+        echo "  Backend:   http://localhost:12000"
         echo "  Frontend:  http://localhost:5173 (or configured port)"
         echo ""
         echo "REM Phase:"

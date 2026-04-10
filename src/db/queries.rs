@@ -138,6 +138,9 @@ impl<'a> NodeRepository<'a> {
             .bind(("namespace", namespace))
             .bind(("limit", limit))
             .await
+            .inspect_err(|e| {
+                tracing::error!("Vector search query failed: {}", e);
+            })
             .context("Failed to search similar nodes")?;
 
         // Parse results

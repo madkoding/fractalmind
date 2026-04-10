@@ -3,12 +3,14 @@
 //! Este módulo define las estrategias para utilizar modelos locales (Fractal)
 //! o remotos (Ollama) para generar embeddings, chat y resúmenes.
 
+#![allow(dead_code)]
+
 use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::traits_llm::{ChatMessage, ChatResponse, EmbeddingResponse};
+use super::traits_llm::{ChatMessage, ChatResponse, ChatRole, EmbeddingResponse};
 use crate::db::connection::DatabaseConnection;
 use crate::db::queries::{NodeRepository, EdgeRepository};
 use crate::graph::{Sssp, GraphNode};
@@ -33,11 +35,11 @@ pub struct FractalModelStrategyConfig {
     /// Temperatura para chat
     pub chat_temperature: f32,
     /// Máximo de tokens para chat
-    pub chat_max_tokens: usize,
+    pub chat_max_tokens: u32,
     /// Temperatura para sumarización
     pub summarizer_temperature: f32,
     /// Máximo de tokens para sumarización
-    pub summarizer_max_tokens: usize,
+    pub summarizer_max_tokens: u32,
 }
 
 impl Default for FractalModelStrategyConfig {
@@ -82,13 +84,13 @@ impl FractalModelStrategyConfig {
         self
     }
 
-    pub fn with_chat_config(mut self, temperature: f32, max_tokens: usize) -> Self {
+    pub fn with_chat_config(mut self, temperature: f32, max_tokens: u32) -> Self {
         self.chat_temperature = temperature;
         self.chat_max_tokens = max_tokens;
         self
     }
 
-    pub fn with_summarizer_config(mut self, temperature: f32, max_tokens: usize) -> Self {
+    pub fn with_summarizer_config(mut self, temperature: f32, max_tokens: u32) -> Self {
         self.summarizer_temperature = temperature;
         self.summarizer_max_tokens = max_tokens;
         self
@@ -177,7 +179,7 @@ impl FractalModelStrategy {
         let mut graph: std::collections::HashMap<String, GraphNode> = std::collections::HashMap::new();
         let mut node_contents: std::collections::HashMap<String, String> = std::collections::HashMap::new();
         
-        for (node, similarity) in &results {
+        for (node, _similarity) in &results {
             if let Some(id) = &node.id {
                 let id_str = id.to_string();
                 let graph_node = GraphNode::new(id_str.clone(), node.namespace.clone());
@@ -212,9 +214,9 @@ impl FractalModelStrategy {
                 
                 let mut ranked: Vec<(String, f32)> = node_contents
                     .keys()
-                    .map(|id| {
+                    .filter_map(|id| {
                         let base_sim = results.iter()
-                            .find(|(n, _)| n.id.as_ref().map(|i| i.to_string()) == *id)
+                            .find(|(n, _)| n.id.as_ref().map(|i| i.to_string()) == Some(id.clone()))
                             .map(|(_, s)| *s)
                             .unwrap_or(0.5);
                         
@@ -224,7 +226,7 @@ impl FractalModelStrategy {
                         
                         // Usar pesos configurables
                         let combined = base_sim * self.config.vector_weight + graph_score * self.config.graph_weight;
-                        (id.clone(), combined)
+                        Some((id.clone(), combined))
                     })
                     .collect();
 
@@ -268,14 +270,16 @@ impl FractalModelStrategy {
 impl ModelStrategy for FractalModelStrategy {
     async fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<EmbeddingResponse>> {
         use crate::embeddings::EmbeddingService;
-        use crate::embeddings::provider::EmbeddingProvider;
-
-        let provider = EmbeddingService::with_nomic_embed().await?;
-        let embeddings = provider.embed_batch(&texts).await?;
+        use crate::embeddings::config::EmbeddingConfig;
+        use crate::models::EmbeddingModel;
         
-        Ok(embeddings.into_iter().map(|emb| EmbeddingResponse {
-            embedding: emb,
-            dimension: emb.len(),
+        let config = EmbeddingConfig::with_model(EmbeddingModel::NomicEmbedTextV15);
+        let service = EmbeddingService::with_mock(config);
+        let results = service.embed_batch(&texts).await?;
+        
+        Ok(results.embeddings.into_iter().map(|emb| EmbeddingResponse {
+            embedding: emb.vector,
+            dimension: emb.dimension,
             model: self.model_id.clone(),
             latency_ms: 0,
         }).collect())
@@ -312,7 +316,7 @@ impl ModelStrategy for FractalModelStrategy {
 
         // Construir mensajes con system prompt
         let mut enriched_messages = vec![ChatMessage {
-            role: "system".to_string(),
+            role: ChatRole::System,
             content: system_prompt,
         }];
         
@@ -333,7 +337,7 @@ impl ModelStrategy for FractalModelStrategy {
     }
 
     async fn summarize(&self, text: &str) -> Result<String> {
-        use crate::graph::similarity::cosine_similarity;
+        
         
         // Generar embedding para el texto
         let embeddings = self.embed_batch(vec![text.to_string()]).await?;
@@ -377,7 +381,7 @@ pub struct OllamaModelStrategy {
     model_name: String,
     api_key: Option<String>,
     temperature: f32,
-    max_tokens: usize,
+    max_tokens: u32,
 }
 
 impl OllamaModelStrategy {
@@ -405,7 +409,7 @@ impl OllamaModelStrategy {
         base_url: String, 
         model_name: String,
         temperature: f32,
-        max_tokens: usize,
+        max_tokens: u32,
     ) -> Self {
         Self { 
             base_url, 
@@ -437,10 +441,10 @@ impl ModelStrategy for OllamaModelStrategy {
         let embeddings = provider.embed_batch(&texts).await?;
         
         Ok(embeddings.into_iter().map(|emb| EmbeddingResponse {
-            embedding: emb,
-            dimension: emb.len(),
+            embedding: emb.embedding,
+            dimension: emb.dimension,
             model: self.model_name.clone(),
-            latency_ms: 0,
+            latency_ms: emb.latency_ms,
         }).collect())
     }
 
@@ -465,7 +469,7 @@ impl ModelStrategy for OllamaModelStrategy {
             )
         };
         
-        provider.chat(messages).await
+        provider.chat(&messages).await
     }
 
     async fn summarize(&self, text: &str) -> Result<String> {

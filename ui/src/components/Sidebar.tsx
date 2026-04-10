@@ -1,9 +1,12 @@
+import { useEffect, useMemo, useState } from 'react';
 import { useChatStore } from '@/stores/chatStore';
 import { MessageSquarePlus, Trash2, Brain, Settings } from 'lucide-react';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { SUPPORTED_LANGUAGES } from '@/i18n';
+import { api } from '@/services/api';
+import type { ServiceStatus, SystemStatus } from '@/types';
 
 interface SidebarProps {
   onSettingsClick: () => void;
@@ -27,6 +30,58 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
   } = useChatStore();
 
   const languageValue = languageMode === 'auto' ? '__auto__' : language;
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+
+  useEffect(() => {
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | null = null;
+
+    const connect = () => {
+      socket = new WebSocket(api.getStatusWebSocketUrl());
+
+      socket.onmessage = (event) => {
+        try {
+          const parsed = JSON.parse(event.data) as SystemStatus;
+          if (parsed?.services) {
+            setSystemStatus(parsed);
+          }
+        } catch {
+          // Ignore malformed payloads
+        }
+      };
+
+      socket.onclose = () => {
+        reconnectTimer = window.setTimeout(connect, 3000);
+      };
+
+      socket.onerror = () => {
+        socket?.close();
+      };
+    };
+
+    connect();
+
+    return () => {
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer);
+      }
+      socket?.close();
+    };
+  }, []);
+
+  const services = useMemo(() => {
+    const defaults: ServiceStatus[] = [
+      { name: 'surrealdb', healthy: false, message: 'checking' },
+      { name: 'ollama', healthy: false, message: 'checking' },
+      { name: 'chat_provider', healthy: false, message: 'checking' },
+      { name: 'searxng', healthy: false, message: 'checking' },
+    ];
+
+    if (!systemStatus?.services?.length) {
+      return defaults;
+    }
+    return systemStatus.services;
+  }, [systemStatus]);
 
   const handleLanguageChange = (value: string) => {
     if (value === '__auto__') {
@@ -96,6 +151,28 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
 
       {/* Footer */}
       <div className="p-4 border-t border-gray-700">
+        <div className="mb-3 rounded-lg border border-gray-700 bg-gray-900/60 p-2">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+            Servicios
+          </div>
+          <div className="space-y-1.5">
+            {services.map((service) => (
+              <div key={service.name} className="flex items-center justify-between text-xs">
+                <span className="text-gray-300">{service.name}</span>
+                <span className="inline-flex items-center gap-1.5 text-gray-300">
+                  <span
+                    className={clsx(
+                      'h-2 w-2 rounded-full',
+                      service.healthy ? 'bg-green-400 shadow-[0_0_8px_#4ade80]' : 'bg-red-400 shadow-[0_0_8px_#f87171]'
+                    )}
+                  />
+                  {service.healthy ? 'ok' : 'down'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <label className="block text-xs text-gray-500 mb-2">
           {t('sidebar.language')}
         </label>

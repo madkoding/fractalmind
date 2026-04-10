@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
-use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use super::embedding::EmbeddingVector;
@@ -105,6 +105,31 @@ pub enum NodeStatus {
     Deprecated,
 }
 
+impl std::fmt::Display for NodeStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NodeStatus::Complete => write!(f, "complete"),
+            NodeStatus::Incomplete => write!(f, "incomplete"),
+            NodeStatus::Pending => write!(f, "pending"),
+            NodeStatus::Deprecated => write!(f, "deprecated"),
+        }
+    }
+}
+
+impl TryFrom<String> for NodeStatus {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.to_lowercase().as_str() {
+            "complete" => Ok(NodeStatus::Complete),
+            "incomplete" => Ok(NodeStatus::Incomplete),
+            "pending" => Ok(NodeStatus::Pending),
+            "deprecated" => Ok(NodeStatus::Deprecated),
+            _ => Err(format!("Invalid NodeStatus: {}", value)),
+        }
+    }
+}
+
 /// Nodo fractal: unidad fundamental de conocimiento
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FractalNode {
@@ -157,7 +182,11 @@ pub struct FractalNode {
     pub updated_at: DateTime<Utc>,
 
     /// Timestamp de última consulta (para cache LRU)
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "datetime_string_option")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "datetime_string_option"
+    )]
     pub last_accessed_at: Option<DateTime<Utc>>,
 }
 
@@ -186,6 +215,10 @@ pub struct NodeMetadata {
 
     /// Número de veces que se ha accedido (para LRU)
     pub access_count: u64,
+
+    /// Si el nodo está deprecated
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deprecated: Option<bool>,
 }
 
 /// Tipo de fuente de conocimiento
@@ -296,6 +329,7 @@ impl Default for NodeMetadata {
             tags: Vec::new(),
             language: "en".to_string(),
             access_count: 0,
+            deprecated: None,
         }
     }
 }

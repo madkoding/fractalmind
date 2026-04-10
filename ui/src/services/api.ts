@@ -45,8 +45,21 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`API Error: ${response.status} - ${error}`);
+      const text = await response.text();
+      let code = `ERR_API_${response.status}`;
+      let message = response.statusText;
+      
+      try {
+        const json = JSON.parse(text);
+        if (json.error?.code) code = json.error.code;
+        if (json.error?.message) message = json.error.message;
+      } catch {
+        if (text.length < 200) message = text;
+      }
+      
+      const error = new Error(message);
+      (error as any).code = code;
+      throw error;
     }
 
     return response.json();
@@ -96,8 +109,15 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`API Error: ${response.status} - ${error}`);
+      const text = await response.text();
+      let message = `Upload failed: ${response.status}`;
+      try {
+        const json = JSON.parse(text);
+        message = json.error?.message || json.message || message;
+      } catch {
+        if (text.length < 200) message = text;
+      }
+      throw new Error(message);
     }
 
     return response.json();
@@ -178,8 +198,15 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`API Error: ${response.status} - ${error}`);
+      const text = await response.text();
+      let message = `Model upload failed: ${response.status}`;
+      try {
+        const json = JSON.parse(text);
+        message = json.error?.message || json.message || message;
+      } catch {
+        if (text.length < 200) message = text;
+      }
+      throw new Error(message);
     }
 
     return response.json();
@@ -224,6 +251,31 @@ class ApiClient {
   }
 
   // ============================================================================
+  // LLM Configuration API
+  // ============================================================================
+
+  getStatusWebSocketUrl(): string {
+    const wsProtocol = this.baseUrl.startsWith('https://') ? 'wss://' : 'ws://';
+    const normalizedBase = this.baseUrl.replace(/^https?:\/\//, '');
+    return `${wsProtocol}${normalizedBase}/ws/status`;
+  }
+
+  // Get current LLM configuration
+  async getLLMConfig(): Promise<import('@/types/models').LLMConfigStatus> {
+    return this.request<import('@/types/models').LLMConfigStatus>('/v1/config/llm');
+  }
+
+  // Update LLM configuration (switch provider)
+  async updateLLMConfig(
+    request: import('@/types/models').UpdateLLMConfigRequest
+  ): Promise<import('@/types/models').UpdateLLMConfigResponse> {
+    return this.request<import('@/types/models').UpdateLLMConfigResponse>('/v1/config/llm', {
+      method: 'PATCH',
+      body: JSON.stringify(request),
+    });
+  }
+
+  // ============================================================================
   // Chunked Upload API
   // ============================================================================
 
@@ -239,7 +291,7 @@ class ApiClient {
   async uploadChunk(
     uploadId: string,
     chunkIndex: number,
-    totalChunks: number,
+    _totalChunks: number,
     chunkData: Blob
   ): Promise<import('@/types/models').UploadChunkResponse> {
     const params = new URLSearchParams({
@@ -252,8 +304,15 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to upload chunk ${chunkIndex}: ${error}`);
+      const text = await response.text();
+      let message = `Upload failed: ${response.status}`;
+      try {
+        const json = JSON.parse(text);
+        message = json.error?.message || json.message || message;
+      } catch {
+        if (text.length < 200) message = text;
+      }
+      throw new Error(message);
     }
 
     return response.json();

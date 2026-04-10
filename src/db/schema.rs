@@ -21,6 +21,9 @@ pub async fn initialize_schema(db: &DatabaseConnection) -> Result<()> {
     // Definir tablas para modelos fractales
     define_fractal_models_tables(db).await?;
 
+    // Definir tabla de configuración del sistema
+    define_system_config_table(db).await?;
+
     info!("Database schema initialized successfully");
 
     Ok(())
@@ -169,6 +172,24 @@ pub async fn seed_global_namespace(db: &DatabaseConnection) -> Result<()> {
         .context("Failed to seed global namespace")?;
 
     info!("Global namespace seeded");
+    Ok(())
+}
+
+/// Define tabla de configuración del sistema (LLM, etc.)
+async fn define_system_config_table(db: &DatabaseConnection) -> Result<()> {
+    let query = r#"
+        DEFINE TABLE system_config SCHEMAFULL;
+        DEFINE FIELD key ON TABLE system_config TYPE string;
+        DEFINE FIELD value ON TABLE system_config TYPE object;
+        DEFINE FIELD updated_at ON TABLE system_config TYPE datetime;
+        DEFINE INDEX idx_key ON TABLE system_config COLUMNS key UNIQUE;
+    "#;
+
+    db.query(query)
+        .await
+        .context("Failed to define system_config table")?;
+
+    info!("System config table defined");
     Ok(())
 }
 

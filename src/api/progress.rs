@@ -1,5 +1,7 @@
 //! Progress tracking for long-running ingestion operations.
 
+#![allow(dead_code)]
+
 use axum::{
     response::{
         sse::{Event, KeepAlive, Sse},

@@ -5,11 +5,13 @@ import { ChatMessage, ChatMessageLoading } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { Brain, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { getErrorMessage } from '@/utils/errors';
 
 export function ChatArea() {
   const messages = useMessages();
   const { isLoading, error, sendMessage, clearError } = useChatStore();
   const { namespace } = useSettingsStore();
+  const { t } = useTranslation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom
@@ -49,7 +51,7 @@ export function ChatArea() {
       {/* Error display */}
       {error && (
         <div className="px-4 py-2 bg-red-900/50 border-t border-red-800 text-red-200 text-sm">
-          {error}
+          {getErrorMessage(error, t)}
         </div>
       )}
 

@@ -3,6 +3,7 @@ import { Upload, X, CheckCircle, AlertCircle } from 'lucide-react';
 import { api } from '@/services';
 import type { ProgressResponse } from '@/types/models';
 import { useTranslation } from 'react-i18next';
+import { getErrorMessage } from '@/utils/errors';
 
 interface ChunkedUploaderProps {
   onUploadComplete: (modelId: string) => void;
@@ -354,7 +355,7 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
           <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
           <div className="flex-1">
             <p className="text-sm font-medium text-red-800 dark:text-red-200">{t('uploader.error.title')}</p>
-            <p className="text-sm text-red-700 dark:text-red-300 mt-1">{error}</p>
+            <p className="text-sm text-red-700 dark:text-red-300 mt-1">{getErrorMessage(error, t)}</p>
           </div>
           <button
             onClick={() => setError(null)}

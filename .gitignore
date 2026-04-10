@@ -32,6 +32,7 @@ Cargo.lock
 CREDENTIALS.md
 API_KEYS.md
 secrets/
+config/secrets.json
 
 # Logs
 *.log
@@ -46,3 +47,6 @@ Thumbs.db
 
 # Data
 data/
+*.db
+*.db WAL
+*.db SHM
