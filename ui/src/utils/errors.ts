@@ -18,7 +18,7 @@ const ERROR_CODE_MAP: Record<string, string> = {
   'ERR_BIZ_EMPTY_KB': 'errors.emptyKnowledgeBase',
   'ERR_BIZ_NO_RESULTS': 'errors.noSearchResults',
   'ERR_SVC_UNAVAILABLE': 'errors.serviceUnavailable',
-  'ERR_SVC_UNKNOWN': 'errors.serviceUnavailable',
+  'ERR_SVC_UNKNOWN': 'errors.serviceUnknown',
 };
 
 export function parseApiError(error: unknown): string {
