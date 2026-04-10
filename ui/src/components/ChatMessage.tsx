@@ -3,13 +3,16 @@ import { User, Bot } from 'lucide-react';
 import clsx from 'clsx';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useTranslation } from 'react-i18next';
 
 interface ChatMessageProps {
   message: Message;
 }
 
 export function ChatMessage({ message }: ChatMessageProps) {
+  const { t, i18n } = useTranslation();
   const isUser = message.role === 'user';
+  const resolvedMatch = message.content.match(/\((?:Resolved in|Resuelto en|Resolvido em) \d+ ms\)/);
 
   return (
     <div
@@ -36,13 +39,13 @@ export function ChatMessage({ message }: ChatMessageProps) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <span className="font-medium text-sm text-gray-300">
-            {isUser ? 'You' : 'Fractal-Mind'}
+            {isUser ? t('chat.you') : t('chat.assistant')}
           </span>
           <span className="text-xs text-gray-500">
-            {new Date(message.timestamp).toLocaleTimeString()}
+            {new Date(message.timestamp).toLocaleTimeString(i18n.language)}
           </span>
-          {message.role === 'assistant' && message.content.includes('(Resolved in') && (
-            <span className="ml-2 text-xs text-gray-400">{message.content.match(/\(Resolved in (\d+ ms)\)/)?.[1]}</span>
+          {message.role === 'assistant' && resolvedMatch && (
+            <span className="ml-2 text-xs text-gray-400">{resolvedMatch[0].slice(1, -1)}</span>
           )}
         </div>
         {isUser ? (
@@ -159,6 +162,8 @@ export function ChatMessage({ message }: ChatMessageProps) {
 
 // Loading indicator for streaming responses
 export function ChatMessageLoading() {
+  const { t } = useTranslation();
+
   return (
     <div className="flex gap-3 p-4 bg-gray-900/50 animate-in">
       <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-gray-700 flex items-center justify-center">
@@ -166,7 +171,8 @@ export function ChatMessageLoading() {
       </div>
       <div className="flex-1">
         <div className="flex items-center gap-2 mb-1">
-          <span className="font-medium text-sm text-gray-300">Fractal-Mind</span>
+          <span className="font-medium text-sm text-gray-300">{t('chat.assistant')}</span>
+          <span className="text-xs text-gray-500">{t('chat.loading')}</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 bg-fractal-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />

@@ -101,12 +101,17 @@ export interface Conversation {
 }
 
 // Settings
+export type SupportedLanguage = 'en' | 'es' | 'pt' | 'fr' | 'de' | 'it' | 'ru' | 'ja' | 'zh-CN';
+export type LanguageMode = 'auto' | 'manual';
+
 export interface Settings {
   apiUrl: string;
   namespace: string;
   userId: string;
   theme: 'light' | 'dark' | 'system';
   contextLimit: number;
+  language: SupportedLanguage;
+  languageMode: LanguageMode;
 }
 
 // Re-export model types

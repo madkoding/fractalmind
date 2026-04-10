@@ -1,12 +1,23 @@
 import { useChatStore } from '@/stores/chatStore';
 import { MessageSquarePlus, Trash2, Brain, Settings } from 'lucide-react';
 import clsx from 'clsx';
+import { useTranslation } from 'react-i18next';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { SUPPORTED_LANGUAGES } from '@/i18n';
 
 interface SidebarProps {
   onSettingsClick: () => void;
 }
 
 export function Sidebar({ onSettingsClick }: SidebarProps) {
+  const { t } = useTranslation();
+  const {
+    language,
+    languageMode,
+    setLanguage,
+    setLanguageMode,
+  } = useSettingsStore();
+
   const {
     conversations,
     currentConversationId,
@@ -14,6 +25,17 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
     selectConversation,
     deleteConversation,
   } = useChatStore();
+
+  const languageValue = languageMode === 'auto' ? '__auto__' : language;
+
+  const handleLanguageChange = (value: string) => {
+    if (value === '__auto__') {
+      void setLanguageMode('auto');
+      return;
+    }
+
+    void setLanguage(value as typeof language);
+  };
 
   return (
     <div className="w-64 bg-gray-800 flex flex-col h-full border-r border-gray-700">
@@ -29,7 +51,7 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
           className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-fractal-600 hover:bg-fractal-700 text-white rounded-lg transition-colors"
         >
           <MessageSquarePlus className="w-4 h-4" />
-          New Chat
+          {t('sidebar.newChat')}
         </button>
       </div>
 
@@ -37,7 +59,7 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
       <div className="flex-1 overflow-y-auto p-2">
         {conversations.length === 0 ? (
           <p className="text-gray-500 text-sm text-center py-4">
-            No conversations yet
+            {t('sidebar.noConversations')}
           </p>
         ) : (
           <ul className="space-y-1">
@@ -61,7 +83,7 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
                       deleteConversation(conversation.id);
                     }}
                     className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-600 rounded transition-all"
-                    title="Delete conversation"
+                    title={t('sidebar.deleteConversation')}
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -74,12 +96,26 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
 
       {/* Footer */}
       <div className="p-4 border-t border-gray-700">
+        <label className="block text-xs text-gray-500 mb-2">
+          {t('sidebar.language')}
+        </label>
+        <select
+          value={languageValue}
+          onChange={(e) => handleLanguageChange(e.target.value)}
+          className="w-full mb-3 px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm text-white focus:border-fractal-500 focus:outline-none"
+        >
+          <option value="__auto__">{t('settings.languageAuto')}</option>
+          {SUPPORTED_LANGUAGES.map((lang) => (
+            <option key={lang.code} value={lang.code}>{lang.label}</option>
+          ))}
+        </select>
+
         <button
           onClick={onSettingsClick}
           className="w-full flex items-center gap-2 px-3 py-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
         >
           <Settings className="w-4 h-4" />
-          Settings
+          {t('sidebar.settings')}
         </button>
       </div>
     </div>

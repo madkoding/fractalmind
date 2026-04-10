@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Send, Paperclip } from 'lucide-react';
 import IngestFileUploader from './IngestFileUploader';
 import clsx from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -12,11 +13,13 @@ interface ChatInputProps {
 export function ChatInput({
   onSend,
   disabled = false,
-  placeholder = 'Ask anything...',
+  placeholder,
 }: ChatInputProps) {
+  const { t } = useTranslation();
   const [message, setMessage] = useState('');
   const [showUploader, setShowUploader] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const resolvedPlaceholder = placeholder || t('chat.inputPlaceholder');
 
   // Auto-resize textarea
   useEffect(() => {
@@ -54,7 +57,7 @@ export function ChatInput({
           <button
             type="button"
             className="p-3 text-gray-400 hover:text-white transition-colors"
-            title="Attach file"
+            title={t('chat.attachFile')}
             onClick={() => setShowUploader((s) => !s)}
             data-testid="toggle-uploader"
           >
@@ -67,7 +70,7 @@ export function ChatInput({
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={placeholder}
+            placeholder={resolvedPlaceholder}
             disabled={disabled}
             rows={1}
             className={clsx(
@@ -87,7 +90,7 @@ export function ChatInput({
                 ? 'text-fractal-500 hover:bg-fractal-500/10'
                 : 'text-gray-600 cursor-not-allowed'
             )}
-            title="Send message"
+            title={t('chat.sendMessage')}
           >
             <Send className="w-5 h-5" />
           </button>
@@ -98,8 +101,7 @@ export function ChatInput({
 
         {/* Helper text */}
         <p className="text-xs text-gray-500 mt-2 text-center">
-          Press <kbd className="px-1 py-0.5 bg-gray-700 rounded">Enter</kbd> to send,{' '}
-          <kbd className="px-1 py-0.5 bg-gray-700 rounded">Shift+Enter</kbd> for new line
+          {t('chat.helper')}
         </p>
       </div>
     </div>
