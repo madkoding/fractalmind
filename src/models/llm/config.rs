@@ -62,9 +62,8 @@ impl ModelProvider {
     /// Verifica si el proveedor requiere API key
     pub fn requires_api_key(&self) -> bool {
         match self {
-            ModelProvider::Ollama { api_key, .. } => {
-                api_key.as_ref().is_some_and(|k| !k.is_empty())
-            }
+            // Cloud Ollama (api_key: Some) always requires a non-empty key
+            ModelProvider::Ollama { api_key, .. } => api_key.is_some(),
             ModelProvider::OpenAI { .. } => true,
             ModelProvider::Anthropic { .. } => true,
             ModelProvider::HuggingFace { .. } => true,

@@ -256,7 +256,7 @@ class ApiClient {
 
   getStatusWebSocketUrl(): string {
     const wsProtocol = this.baseUrl.startsWith('https://') ? 'wss://' : 'ws://';
-    const normalizedBase = this.baseUrl.replace(/^https?:\/\//, '');
+    const normalizedBase = this.baseUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
     return `${wsProtocol}${normalizedBase}/ws/status`;
   }
 
