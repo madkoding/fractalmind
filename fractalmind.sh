@@ -84,6 +84,6 @@ echo "   Press Ctrl+C to stop all services"
 echo ""
 
 # Wait for Ctrl+C
-trap "echo ''; echo '🛑 Stopping services...'; kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; docker-compose stop ollama; exit" SIGINT SIGTERM
+trap "echo ''; echo '🛑 Stopping services...'; kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; docker-compose stop ollama surrealdb searxng; exit" SIGINT SIGTERM
 
 wait

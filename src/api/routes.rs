@@ -42,31 +42,11 @@ async fn ws_stream(
 ) {
     let mut subscriber = sender.subscribe();
 
-    // Send initial status immediately (don't wait for broadcast)
+    // Send initial status immediately with empty services so the UI shows
+    // its local "checking" defaults rather than a misleading "all down" flash.
     let initial_status = SystemStatus {
         overall: "checking".to_string(),
-        services: vec![
-            handlers::ServiceStatus {
-                name: "surrealdb".to_string(),
-                healthy: false,
-                message: None,
-            },
-            handlers::ServiceStatus {
-                name: "ollama".to_string(),
-                healthy: false,
-                message: None,
-            },
-            handlers::ServiceStatus {
-                name: "chat_provider".to_string(),
-                healthy: false,
-                message: None,
-            },
-            handlers::ServiceStatus {
-                name: "searxng".to_string(),
-                healthy: false,
-                message: None,
-            },
-        ],
+        services: vec![],
     };
     let msg = serde_json::to_string(&initial_status).unwrap_or_default();
     if socket

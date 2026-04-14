@@ -119,6 +119,8 @@ export const useSettingsStore = create<SettingsState>()(
             languageMode: DEFAULT_SETTINGS.languageMode,
             detectedLanguage: resolvedLanguage,
           });
+        }).catch(() => {
+          useSettingsStore.setState({ language: DEFAULT_LANGUAGE, detectedLanguage: DEFAULT_LANGUAGE });
         });
       },
     }),
