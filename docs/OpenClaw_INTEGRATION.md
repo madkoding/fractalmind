@@ -71,7 +71,7 @@ services:
     volumes:
       - fractalmind-data:/app/data
     environment:
-      - SURREAL_URL=ws://surrealdb:8000
+      - SURREAL_URL=http://surrealdb:8000
     depends_on:
       - surrealdb
 

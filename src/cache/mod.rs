@@ -20,14 +20,16 @@
 //! ```
 
 pub mod config;
+pub mod embedding_cache;
 pub mod entry;
 pub mod lru_cache;
 pub mod node_cache;
-pub mod embedding_cache;
 
 // Re-exports
 pub use config::{CacheConfig, CacheMetrics};
+pub use embedding_cache::{
+    new_shared_cache as new_shared_embedding_cache, EmbeddingCache, SharedEmbeddingCache,
+};
 pub use entry::CacheEntry;
-pub use lru_cache::{ThreadSafeLruCache, EntryMetadata};
-pub use node_cache::{NodeCache, SharedNodeCache, new_shared_cache as new_shared_node_cache};
-pub use embedding_cache::{EmbeddingCache, SharedEmbeddingCache, new_shared_cache as new_shared_embedding_cache};
+pub use lru_cache::{EntryMetadata, ThreadSafeLruCache};
+pub use node_cache::{new_shared_cache as new_shared_node_cache, NodeCache, SharedNodeCache};

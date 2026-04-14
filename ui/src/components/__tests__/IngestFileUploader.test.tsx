@@ -36,4 +36,22 @@ describe('IngestFileUploader', () => {
 
     spy.mockRestore();
   });
+
+  it('shows translated fallback upload error', async () => {
+    const spy = vi.spyOn(apiModule.api, 'ingestFile').mockRejectedValue(new Error(''));
+
+    render(<IngestFileUploader />);
+
+    const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+    const upload = screen.getByTestId('upload-button');
+
+    const file = new File(['hello world'], 'hello.txt', { type: 'text/plain' });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    fireEvent.click(upload);
+
+    const msg = await screen.findByTestId('message');
+    expect(msg.textContent).toContain('Upload failed');
+
+    spy.mockRestore();
+  });
 });

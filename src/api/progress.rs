@@ -1,5 +1,7 @@
 //! Progress tracking for long-running ingestion operations.
 
+#![allow(dead_code)]
+
 use axum::{
     response::{
         sse::{Event, KeepAlive, Sse},
@@ -20,28 +22,28 @@ use uuid::Uuid;
 pub struct IngestionProgress {
     /// Unique session ID for this ingestion
     pub session_id: String,
-    
+
     /// Total number of chunks to process
     pub total_chunks: usize,
-    
+
     /// Current chunk being embedded
     pub current_chunk: usize,
-    
+
     /// Number of embeddings completed
     pub embeddings_completed: usize,
-    
+
     /// Number of nodes persisted to DB
     pub nodes_persisted: usize,
-    
+
     /// Current stage: "extracting", "chunking", "embedding", "persisting", "complete"
     pub stage: String,
-    
+
     /// Optional progress message
     pub message: Option<String>,
-    
+
     /// Whether the operation completed successfully
     pub success: bool,
-    
+
     /// Any error message if failed
     pub error: Option<String>,
 }
@@ -110,10 +112,10 @@ pub fn create_progress_tracker() -> ProgressTracker {
 pub async fn register_session(tracker: &ProgressTracker) -> String {
     let session_id = Uuid::new_v4().to_string();
     let progress = IngestionProgress::new(session_id.clone());
-    
+
     let mut map = tracker.write().await;
     map.insert(session_id.clone(), progress);
-    
+
     debug!("Registered new ingestion session: {}", session_id);
     session_id
 }
@@ -131,7 +133,10 @@ pub async fn update_progress(
 }
 
 /// Gets current progress for a session.
-pub async fn get_progress(tracker: &ProgressTracker, session_id: &str) -> Option<IngestionProgress> {
+pub async fn get_progress(
+    tracker: &ProgressTracker,
+    session_id: &str,
+) -> Option<IngestionProgress> {
     let map = tracker.read().await;
     map.get(session_id).cloned()
 }
@@ -139,7 +144,7 @@ pub async fn get_progress(tracker: &ProgressTracker, session_id: &str) -> Option
 /// Removes a completed session after a delay (for cleanup).
 pub async fn cleanup_session(tracker: &ProgressTracker, session_id: String, delay_secs: u64) {
     tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
-    
+
     let mut map = tracker.write().await;
     map.remove(&session_id);
     debug!("Cleaned up ingestion session: {}", session_id);
@@ -152,16 +157,16 @@ pub async fn progress_stream(
 ) -> impl IntoResponse {
     let stream = async_stream::stream! {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(250));
-        
+
         loop {
             interval.tick().await;
-            
+
             // Get current progress
             let progress = {
                 let map = tracker.read().await;
                 map.get(&session_id).cloned()
             };
-            
+
             match progress {
                 Some(p) => {
                     // Serialize progress to JSON
@@ -172,10 +177,10 @@ pub async fn progress_stream(
                             continue;
                         }
                     };
-                    
+
                     // Send SSE event
                     yield Ok::<_, Infallible>(Event::default().data(json));
-                    
+
                     // Stop streaming when complete or failed
                     if p.stage == "complete" || p.error.is_some() {
                         break;

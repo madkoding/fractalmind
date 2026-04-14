@@ -1,10 +1,18 @@
 #![allow(dead_code)]
 
 use super::connection::DatabaseConnection;
-use crate::models::{FractalNode, FractalEdge, NodeStatus};
-use crate::models::llm::fractal_model::{FractalModel, FractalModelStatus, FractalModelNode};
+use crate::models::llm::fractal_model::{FractalModel, FractalModelNode, FractalModelStatus};
+use crate::models::{FractalEdge, FractalNode, NodeStatus};
 use anyhow::{Context, Result};
 use surrealdb::sql::Thing;
+
+/// Información de namespace
+#[derive(Debug, Clone)]
+pub struct NamespaceInfo {
+    pub name: String,
+    pub node_count: u64,
+    pub edge_count: u64,
+}
 
 /// Repositorio de nodos
 pub struct NodeRepository<'a> {
@@ -18,12 +26,8 @@ impl<'a> NodeRepository<'a> {
 
     /// Crea un nuevo nodo
     pub async fn create(&self, node: &FractalNode) -> Result<Thing> {
-        let result = self
-            .db
-            .create("nodes")
-            .content(node)
-            .await;
-        
+        let result = self.db.create("nodes").content(node).await;
+
         match result {
             Ok(created) => {
                 let nodes: Vec<FractalNode> = created;
@@ -87,7 +91,8 @@ impl<'a> NodeRepository<'a> {
 
     /// Actualiza un nodo
     pub async fn update(&self, id: &Thing, node: &FractalNode) -> Result<()> {
-        let _: Option<FractalNode> = self.db
+        let _: Option<FractalNode> = self
+            .db
             .update(id)
             .content(node)
             .await
@@ -98,11 +103,7 @@ impl<'a> NodeRepository<'a> {
 
     /// Elimina un nodo
     pub async fn delete(&self, id: &Thing) -> Result<()> {
-        let _: Option<FractalNode> = self
-            .db
-            .delete(id)
-            .await
-            .context("Failed to delete node")?;
+        let _: Option<FractalNode> = self.db.delete(id).await.context("Failed to delete node")?;
 
         Ok(())
     }
@@ -130,6 +131,9 @@ impl<'a> NodeRepository<'a> {
             .bind(("namespace", namespace))
             .bind(("limit", limit))
             .await
+            .inspect_err(|e| {
+                tracing::error!("Vector search query failed: {}", e);
+            })
             .context("Failed to search similar nodes")?;
 
         // Parse results
@@ -168,6 +172,162 @@ impl<'a> NodeRepository<'a> {
         let nodes: Vec<FractalNode> = result.take(0)?;
         Ok(nodes)
     }
+
+    /// Obtiene todos los nodos
+    pub async fn get_all(&self) -> Result<Vec<FractalNode>> {
+        let query = "SELECT * FROM nodes";
+        let mut result = self
+            .db
+            .query(query)
+            .await
+            .context("Failed to get all nodes")?;
+
+        let nodes: Vec<FractalNode> = result.take(0)?;
+        Ok(nodes)
+    }
+
+    /// Cuenta todos los nodos
+    pub async fn count_all(&self) -> Result<u64> {
+        let query = "SELECT count() as count FROM nodes GROUP ALL";
+        let mut result = self
+            .db
+            .query(query)
+            .await
+            .context("Failed to count all nodes")?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u64,
+        }
+
+        let counts: Vec<CountResult> = result.take(0)?;
+        Ok(counts.first().map(|c| c.count).unwrap_or(0))
+    }
+
+    /// Cuenta nodos por namespace
+    pub async fn count_by_namespace(&self, namespace: &str) -> Result<u64> {
+        let query = "SELECT count() as count FROM nodes WHERE namespace = $namespace GROUP ALL";
+        let mut result = self
+            .db
+            .query(query)
+            .bind(("namespace", namespace))
+            .await
+            .context("Failed to count nodes by namespace")?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u64,
+        }
+
+        let counts: Vec<CountResult> = result.take(0)?;
+        Ok(counts.first().map(|c| c.count).unwrap_or(0))
+    }
+
+    /// Cuenta todas las aristas
+    pub async fn count_all_edges(&self) -> Result<u64> {
+        let query = "SELECT count() as count FROM edges GROUP ALL";
+        let mut result = self
+            .db
+            .query(query)
+            .await
+            .context("Failed to count edges")?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u64,
+        }
+
+        let counts: Vec<CountResult> = result.take(0)?;
+        Ok(counts.first().map(|c| c.count).unwrap_or(0))
+    }
+
+    /// Obtiene todos los namespaces únicos
+    pub async fn get_namespaces(&self) -> Result<Vec<NamespaceInfo>> {
+        let query = r#"
+            SELECT namespace, count() as node_count 
+            FROM nodes 
+            GROUP BY namespace
+        "#;
+
+        let mut result = self
+            .db
+            .query(query)
+            .await
+            .context("Failed to get namespaces")?;
+
+        #[derive(serde::Deserialize)]
+        struct NamespaceGroup {
+            namespace: String,
+            node_count: u64,
+        }
+
+        let groups: Vec<NamespaceGroup> = result.take(0)?;
+
+        let mut namespaces = Vec::new();
+        for group in groups {
+            let edge_count = self
+                .count_edges_by_namespace(&group.namespace)
+                .await
+                .unwrap_or(0);
+            namespaces.push(NamespaceInfo {
+                name: group.namespace,
+                node_count: group.node_count,
+                edge_count,
+            });
+        }
+
+        Ok(namespaces)
+    }
+
+    /// Cuenta aristas por namespace (basado en el namespace de los nodos origen)
+    pub async fn count_edges_by_namespace(&self, namespace: &str) -> Result<u64> {
+        let query = r#"
+            SELECT count() as count FROM edges 
+            WHERE from IN (SELECT id FROM nodes WHERE namespace = $namespace)
+            GROUP ALL
+        "#;
+
+        let mut result = self
+            .db
+            .query(query)
+            .bind(("namespace", namespace))
+            .await
+            .context("Failed to count edges by namespace")?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u64,
+        }
+
+        let counts: Vec<CountResult> = result.take(0)?;
+        Ok(counts.first().map(|c| c.count).unwrap_or(0))
+    }
+
+    /// Obtiene nodos por estado
+    pub async fn count_by_status(&self, status: NodeStatus) -> Result<u64> {
+        let status_str = match status {
+            NodeStatus::Complete => "complete",
+            NodeStatus::Incomplete => "incomplete",
+            NodeStatus::Pending => "pending",
+            NodeStatus::Deprecated => "deprecated",
+        };
+
+        let query = "SELECT count() as count FROM nodes WHERE status = $status GROUP ALL";
+        let mut result = self
+            .db
+            .query(query)
+            .bind(("status", status_str))
+            .await
+            .context("Failed to count nodes by status")?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u64,
+        }
+
+        let counts: Vec<CountResult> = result.take(0)?;
+        Ok(counts.first().map(|c| c.count).unwrap_or(0))
+    }
 }
 
 /// Repositorio de aristas
@@ -182,12 +342,8 @@ impl<'a> EdgeRepository<'a> {
 
     /// Crea una nueva arista
     pub async fn create(&self, edge: &FractalEdge) -> Result<Thing> {
-        let result = self
-            .db
-            .create("edges")
-            .content(edge)
-            .await;
-        
+        let result = self.db.create("edges").content(edge).await;
+
         match result {
             Ok(created) => {
                 let edges: Vec<FractalEdge> = created;
@@ -198,8 +354,12 @@ impl<'a> EdgeRepository<'a> {
             }
             Err(e) => {
                 tracing::error!("SurrealDB edge create error: {:?}", e);
-                tracing::error!("Edge data: from={:?}, to={:?}, type={:?}", 
-                    edge.from, edge.to, edge.edge_type);
+                tracing::error!(
+                    "Edge data: from={:?}, to={:?}, type={:?}",
+                    edge.from,
+                    edge.to,
+                    edge.edge_type
+                );
                 Err(anyhow::anyhow!("Failed to create edge: {}", e))
             }
         }
@@ -235,13 +395,46 @@ impl<'a> EdgeRepository<'a> {
 
     /// Elimina una arista
     pub async fn delete(&self, id: &Thing) -> Result<()> {
-        let _: Option<FractalEdge> = self
-            .db
-            .delete(id)
-            .await
-            .context("Failed to delete edge")?;
+        let _: Option<FractalEdge> = self.db.delete(id).await.context("Failed to delete edge")?;
 
         Ok(())
+    }
+
+    /// Cuenta todas las aristas
+    pub async fn count_all_edges(&self) -> Result<u64> {
+        let query = "SELECT count() as count FROM edges GROUP ALL";
+        let mut result = self
+            .db
+            .query(query)
+            .await
+            .context("Failed to count edges")?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u64,
+        }
+
+        let counts: Vec<CountResult> = result.take(0)?;
+        Ok(counts.first().map(|c| c.count).unwrap_or(0))
+    }
+
+    /// Cuenta aristas por tipo
+    pub async fn count_by_type(&self, edge_type: &str) -> Result<u64> {
+        let query = "SELECT count() as count FROM edges WHERE type = $type GROUP ALL";
+        let mut result = self
+            .db
+            .query(query)
+            .bind(("type", edge_type))
+            .await
+            .context("Failed to count edges by type")?;
+
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: u64,
+        }
+
+        let counts: Vec<CountResult> = result.take(0)?;
+        Ok(counts.first().map(|c| c.count).unwrap_or(0))
     }
 }
 
@@ -262,8 +455,11 @@ impl<'a> FractalModelRepository<'a> {
     /// Crea un nuevo modelo fractal
     pub async fn create(&self, model: &FractalModel) -> Result<String> {
         // Extract just the ID part without the table prefix
-        let id_part = model.id.strip_prefix("fractal_models:").unwrap_or(&model.id);
-        
+        let id_part = model
+            .id
+            .strip_prefix("fractal_models:")
+            .unwrap_or(&model.id);
+
         let query = r#"
             CREATE type::thing("fractal_models", $id) SET
                 name = $name,
@@ -313,7 +509,7 @@ impl<'a> FractalModelRepository<'a> {
     pub async fn get_by_id(&self, id: &str) -> Result<Option<FractalModel>> {
         // Extract just the ID part without the table prefix
         let id_part = id.strip_prefix("fractal_models:").unwrap_or(id);
-        
+
         let query = "SELECT * FROM type::thing(\"fractal_models\", $id)";
         let mut result = self
             .db
@@ -468,10 +664,10 @@ impl<'a> FractalModelRepository<'a> {
     pub async fn delete(&self, id: &str) -> Result<Option<FractalModel>> {
         // First get the model to return it
         let model = self.get_by_id(id).await?;
-        
+
         // Extract just the ID part without the table prefix
         let id_part = id.strip_prefix("fractal_models:").unwrap_or(id);
-        
+
         // Delete from database using type::thing
         let query = "DELETE type::thing(\"fractal_models\", $id)";
         self.db
@@ -544,12 +740,12 @@ impl<'a> FractalModelNodeRepository<'a> {
     /// Crea múltiples nodos en batch
     pub async fn create_batch(&self, nodes: &[FractalModelNode]) -> Result<Vec<String>> {
         let mut ids = Vec::with_capacity(nodes.len());
-        
+
         for node in nodes {
             let id = self.create(node).await?;
             ids.push(id);
         }
-        
+
         Ok(ids)
     }
 
@@ -703,13 +899,10 @@ impl<'a> FractalModelNodeRepository<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{NodeMetadata, EmbeddingVector, EmbeddingModel};
+    use crate::models::{EmbeddingModel, EmbeddingVector, NodeMetadata};
 
     fn create_test_node() -> FractalNode {
-        let embedding = EmbeddingVector::new(
-            vec![0.1; 768],
-            EmbeddingModel::NomicEmbedTextV15,
-        );
+        let embedding = EmbeddingVector::new(vec![0.1; 768], EmbeddingModel::NomicEmbedTextV15);
 
         FractalNode::new_leaf(
             "Test content".to_string(),

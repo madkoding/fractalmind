@@ -223,7 +223,9 @@ impl IngestionService {
 
         info!(
             "Chunked {} chars into {} chunks (avg {} chars)",
-            chunking.original_length, chunking.chunks.len(), chunking.avg_chunk_size
+            chunking.original_length,
+            chunking.chunks.len(),
+            chunking.avg_chunk_size
         );
 
         // Generate nodes
@@ -257,12 +259,9 @@ impl IngestionService {
         F: Fn(&str) -> EmbeddingVector,
     {
         let data = tokio::fs::read(path).await?;
-        let filename = path
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string());
+        let filename = path.file_name().map(|s| s.to_string_lossy().to_string());
 
-        let mut input = IngestionInput::new(data, namespace)
-            .with_source(&path.to_string_lossy());
+        let mut input = IngestionInput::new(data, namespace).with_source(&path.to_string_lossy());
 
         if let Some(name) = filename {
             input = input.with_filename(&name);
@@ -334,8 +333,10 @@ impl IngestionService {
                 let embedding = embedding_generator(&chunk.content);
 
                 // Create metadata
-                let mut metadata = NodeMetadata::default();
-                metadata.tags = input.tags.clone();
+                let mut metadata = NodeMetadata {
+                    tags: input.tags.clone(),
+                    ..Default::default()
+                };
 
                 if let Some(src) = &input.source {
                     metadata.source = src.clone();
@@ -347,7 +348,9 @@ impl IngestionService {
 
                 // Add chunk info to tags
                 if chunks.len() > 1 {
-                    metadata.tags.push(format!("chunk:{}/{}", chunk.index + 1, chunk.total));
+                    metadata
+                        .tags
+                        .push(format!("chunk:{}/{}", chunk.index + 1, chunk.total));
                 }
 
                 // Create node
@@ -515,8 +518,8 @@ mod tests {
     #[tokio::test]
     async fn test_ingest_bytes() {
         let service = IngestionService::with_defaults();
-        let input = IngestionInput::new(b"Hello, world!".to_vec(), "global")
-            .with_filename("test.txt");
+        let input =
+            IngestionInput::new(b"Hello, world!".to_vec(), "global").with_filename("test.txt");
 
         let result = service.ingest(input, mock_embedding).await.unwrap();
 

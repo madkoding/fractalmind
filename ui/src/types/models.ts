@@ -125,3 +125,46 @@ export interface CancelUploadResponse {
   success: boolean;
   message: string;
 }
+
+// LLM Configuration Types
+export interface ProviderHealthStatus {
+  embedding: boolean;
+  chat: boolean;
+  summarizer: boolean;
+}
+
+export interface LLMConfigStatus {
+  provider_type: string;
+  ollama_base_url: string;
+  is_cloud: boolean;
+  embedding_model: string;
+  chat_model: string;
+  summarizer_model: string;
+  health_status: ProviderHealthStatus;
+}
+
+export interface UpdateLLMConfigRequest {
+  provider_type: 'ollama' | 'ollama-cloud';
+  ollama_base_url?: string;
+  ollama_api_key?: string;
+  embedding_model?: string;
+  chat_model?: string;
+  summarizer_model?: string;
+}
+
+export interface UpdateLLMConfigResponse {
+  success: boolean;
+  message: string;
+  config: LLMConfigStatus;
+}
+
+export interface ServiceStatus {
+  name: string;
+  healthy: boolean;
+  message?: string | null;
+}
+
+export interface SystemStatus {
+  overall: 'checking' | 'healthy' | 'degraded' | 'unhealthy';
+  services: ServiceStatus[];
+}

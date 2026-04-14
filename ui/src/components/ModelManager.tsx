@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { 
-  Upload, 
   Trash2, 
   RefreshCw, 
   CheckCircle, 
@@ -13,8 +12,10 @@ import {
 import { api } from '@/services';
 import { ChunkedUploader } from './ChunkedUploader';
 import type { FractalModel, ModelStrategy, OllamaModel } from '@/types';
+import { useTranslation } from 'react-i18next';
 
 export const ModelManager = () => {
+  const { t, i18n } = useTranslation();
   const [models, setModels] = useState<FractalModel[]>([]);
   const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,7 +42,7 @@ export const ModelManager = () => {
         setModels(response.models);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load models');
+      setError(err instanceof Error ? err.message : t('models.error.load'));
     } finally {
       setLoading(false);
     }
@@ -62,12 +63,12 @@ export const ModelManager = () => {
       // Refresh after delay
       setTimeout(loadModels, 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Conversion failed');
+      setError(err instanceof Error ? err.message : t('models.error.convert'));
     }
   };
 
   const handleDelete = async (modelId: string) => {
-    if (!confirm('Are you sure you want to delete this model?')) {
+    if (!confirm(t('models.confirmDelete'))) {
       return;
     }
 
@@ -76,7 +77,7 @@ export const ModelManager = () => {
       await api.deleteModel(modelId);
       setModels(prev => prev.filter(m => m.id !== modelId));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Delete failed');
+      setError(err instanceof Error ? err.message : t('models.error.delete'));
     }
   };
 
@@ -89,7 +90,7 @@ export const ModelManager = () => {
       });
       setStrategy(newStrategy);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Strategy update failed');
+      setError(err instanceof Error ? err.message : t('models.error.strategy'));
     }
   };
 
@@ -133,14 +134,14 @@ export const ModelManager = () => {
     <div className="h-full flex flex-col bg-gray-900 text-white">
       {/* Header */}
       <div className="border-b border-gray-800 p-6">
-        <h1 className="text-2xl font-bold mb-2">Fractal Model Manager</h1>
-        <p className="text-gray-400">Upload and manage GGUF models for fractal conversion</p>
+        <h1 className="text-2xl font-bold mb-2">{t('models.title')}</h1>
+        <p className="text-gray-400">{t('models.subtitle')}</p>
       </div>
 
       {/* Strategy Selector */}
       <div className="border-b border-gray-800 p-4">
         <div className="flex items-center gap-4">
-          <span className="text-sm font-medium text-gray-400">Inference Strategy:</span>
+          <span className="text-sm font-medium text-gray-400">{t('models.strategyLabel')}</span>
           <div className="flex gap-2">
             <button
               onClick={() => handleStrategyChange('ollama')}
@@ -151,7 +152,7 @@ export const ModelManager = () => {
               }`}
             >
               <Zap className="w-4 h-4" />
-              Ollama (Direct)
+              {t('models.strategy.ollama')}
             </button>
             <button
               onClick={() => {
@@ -165,7 +166,7 @@ export const ModelManager = () => {
               }`}
             >
               <Database className="w-4 h-4" />
-              Fractal (Graph)
+              {t('models.strategy.fractal')}
             </button>
           </div>
         </div>
@@ -182,7 +183,7 @@ export const ModelManager = () => {
       <div className="p-6">
         {showUploader ? (
           <ChunkedUploader
-            onUploadComplete={(modelId) => {
+            onUploadComplete={(_modelId) => {
               setShowUploader(false);
               loadModels();
             }}
@@ -194,9 +195,9 @@ export const ModelManager = () => {
             className="w-full border-2 border-dashed border-gray-700 hover:border-blue-500 rounded-lg p-8 text-center transition-colors group"
           >
             <Plus className="w-12 h-12 mx-auto mb-4 text-gray-400 group-hover:text-blue-400" />
-            <p className="text-lg mb-2 text-gray-300">Upload GGUF Model</p>
+            <p className="text-lg mb-2 text-gray-300">{t('models.uploadButton')}</p>
             <p className="text-sm text-gray-500">
-              Click to upload a model file (supports files up to 1TB with chunked upload)
+              {t('models.uploadHint')}
             </p>
           </button>
         )}
@@ -207,8 +208,8 @@ export const ModelManager = () => {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold">
             {strategy === 'ollama' 
-              ? `Ollama Models (${ollamaModels.length})` 
-              : `Fractal Models (${models.length})`}
+              ? t('models.ollamaListTitle', { count: ollamaModels.length })
+              : t('models.fractalListTitle', { count: models.length })}
           </h2>
           <button
             onClick={loadModels}
@@ -222,13 +223,13 @@ export const ModelManager = () => {
         {loading && (strategy === 'ollama' ? ollamaModels.length === 0 : models.length === 0) ? (
           <div className="text-center py-12 text-gray-500">
             <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin" />
-            Loading models...
+            {t('models.loading')}
           </div>
         ) : strategy === 'ollama' ? (
           // Ollama Models List
           ollamaModels.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
-              No Ollama models found. Make sure Ollama is running with models installed.
+              {t('models.emptyOllama')}
             </div>
           ) : (
             <div className="grid gap-4">
@@ -251,30 +252,30 @@ export const ModelManager = () => {
                       
                       <div className="grid grid-cols-2 gap-4 text-sm text-gray-400">
                         <div>
-                          <span className="font-medium">Size:</span> {formatFileSize(model.size)}
+                          <span className="font-medium">{t('models.fields.size')}:</span> {formatFileSize(model.size)}
                         </div>
                         <div>
-                          <span className="font-medium">Modified:</span>{' '}
-                          {new Date(model.modified_at).toLocaleDateString()}
+                          <span className="font-medium">{t('models.fields.modified')}:</span>{' '}
+                          {new Date(model.modified_at).toLocaleDateString(i18n.language)}
                         </div>
                         
                         {model.details && (
                           <>
                             {model.details.parameter_size && (
                               <div>
-                                <span className="font-medium">Parameters:</span> {model.details.parameter_size}
-                              </div>
-                            )}
-                            {model.details.quantization_level && (
-                              <div>
-                                <span className="font-medium">Quantization:</span> {model.details.quantization_level}
-                              </div>
-                            )}
-                            {model.details.family && (
-                              <div>
-                                <span className="font-medium">Family:</span> {model.details.family}
-                              </div>
-                            )}
+                                  <span className="font-medium">{t('models.fields.parameters')}:</span> {model.details.parameter_size}
+                                </div>
+                              )}
+                              {model.details.quantization_level && (
+                                <div>
+                                  <span className="font-medium">{t('models.fields.quantization')}:</span> {model.details.quantization_level}
+                                </div>
+                              )}
+                              {model.details.family && (
+                                <div>
+                                  <span className="font-medium">{t('models.fields.family')}:</span> {model.details.family}
+                                </div>
+                              )}
                           </>
                         )}
                       </div>
@@ -288,7 +289,7 @@ export const ModelManager = () => {
           // Fractal Models List
           models.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
-              No models uploaded yet. Upload a GGUF model to get started.
+              {t('models.emptyFractal')}
             </div>
           ) : (
             <div className="grid gap-4">
@@ -318,26 +319,26 @@ export const ModelManager = () => {
                       
                       <div className="grid grid-cols-2 gap-4 text-sm text-gray-400">
                         <div>
-                          <span className="font-medium">Size:</span> {formatFileSize(model.file_size)}
+                          <span className="font-medium">{t('models.fields.size')}:</span> {formatFileSize(model.file_size)}
                         </div>
                         <div>
-                          <span className="font-medium">Created:</span>{' '}
-                          {new Date(model.created_at).toLocaleDateString()}
+                          <span className="font-medium">{t('models.fields.created')}:</span>{' '}
+                          {new Date(model.created_at).toLocaleDateString(i18n.language)}
                         </div>
                         
                         {model.architecture && (
                           <>
                             <div>
-                              <span className="font-medium">Type:</span> {model.architecture.model_type}
+                              <span className="font-medium">{t('models.fields.type')}:</span> {model.architecture.model_type}
                             </div>
                             <div>
-                              <span className="font-medium">Layers:</span> {model.architecture.n_layers}
+                              <span className="font-medium">{t('models.fields.layers')}:</span> {model.architecture.n_layers}
                             </div>
                             <div>
-                              <span className="font-medium">Embedding:</span> {model.architecture.embedding_dim}D
+                              <span className="font-medium">{t('models.fields.embedding')}:</span> {model.architecture.embedding_dim}D
                             </div>
                             <div>
-                              <span className="font-medium">Vocab:</span>{' '}
+                              <span className="font-medium">{t('models.fields.vocab')}:</span>{' '}
                               {model.architecture.vocab_size.toLocaleString()}
                             </div>
                           </>
@@ -353,7 +354,7 @@ export const ModelManager = () => {
                             handleConvert(model.id);
                           }}
                           className="p-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
-                          title="Convert to fractal"
+                          title={t('models.convert')}
                         >
                           <RefreshCw className="w-4 h-4" />
                         </button>
@@ -364,7 +365,7 @@ export const ModelManager = () => {
                           handleDelete(model.id);
                         }}
                         className="p-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-colors"
-                        title="Delete model"
+                        title={t('models.delete')}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

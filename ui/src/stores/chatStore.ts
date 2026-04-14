@@ -2,12 +2,13 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Message, Conversation, AskResponse } from '@/types';
 import { api } from '@/services/api';
+import i18n from '@/i18n/config';
 
 interface ChatState {
   conversations: Conversation[];
   currentConversationId: string | null;
   isLoading: boolean;
-  error: string | null;
+  error: unknown | null;
 
   // Actions
   createConversation: () => string;
@@ -31,7 +32,7 @@ export const useChatStore = create<ChatState>()(
         const id = generateId();
         const conversation: Conversation = {
           id,
-          title: 'New Conversation',
+          title: i18n.t('sidebar.newConversationTitle'),
           messages: [],
           created_at: Date.now(),
           updated_at: Date.now(),
@@ -106,8 +107,9 @@ export const useChatStore = create<ChatState>()(
           const assistantMessage: Message = {
             id: generateId(),
             role: 'assistant',
-            content: `${response.answer}\n\n(Resolved in ${latencyMs} ms)`,
+            content: response.answer,
             timestamp: Date.now(),
+            latency_ms: latencyMs,
           };
 
           set((state) => ({
@@ -125,7 +127,7 @@ export const useChatStore = create<ChatState>()(
         } catch (error) {
           set({
             isLoading: false,
-            error: error instanceof Error ? error.message : 'Unknown error',
+            error: error instanceof Error ? error : new Error(i18n.t('chat.unknownError')),
           });
         }
       },

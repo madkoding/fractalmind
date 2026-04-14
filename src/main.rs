@@ -2,6 +2,7 @@
 
 mod api;
 mod cache;
+mod config;
 mod db;
 mod embeddings;
 mod graph;
@@ -9,24 +10,26 @@ mod models;
 mod services;
 mod utils;
 
-use std::sync::Arc;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use anyhow::Result;
 use dotenv::dotenv;
-use tokio::sync::RwLock;
-use tower_http::cors::{CorsLayer, Any};
 use http::Method;
+use tokio::sync::{broadcast, RwLock};
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::db::connection::DatabaseConnection;
-use crate::models::llm::{ModelBrain, BrainConfig};
-use crate::cache::{NodeCache, EmbeddingCache, CacheConfig};
-use crate::api::handlers::{AppState, SharedState};
+use crate::api::handlers::{check_services_health, AppState, SharedState, SystemStatus};
 use crate::api::progress::create_progress_tracker;
-use crate::services::{StorageManager, UploadSessionManager, UploadCleanupJob, RemScheduler, RemSchedulerConfig};
+use crate::cache::{CacheConfig, EmbeddingCache, NodeCache};
+use crate::db::connection::DatabaseConnection;
+use crate::models::llm::{BrainConfig, ModelBrain};
+use crate::services::{
+    RemScheduler, RemSchedulerConfig, StorageManager, UploadCleanupJob, UploadSessionManager,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -66,11 +69,12 @@ async fn main() -> Result<()> {
 
     info!("Database schema initialized");
 
+    // Cargar LLM config desde variables de entorno y config/secrets.json
+    let brain_config = BrainConfig::from_env()?;
+
     // Inicializar ModelBrain
     info!("Initializing Model Brain...");
-    let brain_config = BrainConfig::from_env()?;
-    let brain_config_clone = brain_config.clone();
-    let brain = match ModelBrain::new(brain_config).await {
+    let brain = match ModelBrain::new(brain_config.clone()).await {
         Ok(brain) => {
             info!("✅ Model Brain initialized successfully");
             let info = brain.get_models_info();
@@ -84,22 +88,21 @@ async fn main() -> Result<()> {
             brain
         }
         Err(e) => {
-            error!("❌ Model Brain initialization failed");
-            error!("Error: {}", e);
-            error!("");
-            error!("💡 Troubleshooting steps:");
-            error!("   1. Check if your provider (Ollama/OpenAI/Anthropic) is running");
-            error!("   2. Verify your API keys are set in environment variables");
-            error!("   3. Check your network connection");
-            error!("   4. Review your configuration in .env file");
-            error!("");
-            error!("   Provider configuration:");
-            error!("   - EMBEDDING_PROVIDER: {}", brain_config_clone.embedding_model.provider);
-            error!("   - CHAT_PROVIDER: {}", brain_config_clone.chat_model.provider);
-            error!("   - SUMMARIZER_PROVIDER: {}", brain_config_clone.summarizer_model.provider);
-            error!("");
-            error!("   For local Ollama, run: ollama serve");
-            return Err(anyhow::anyhow!("Failed to initialize Model Brain"));
+            warn!("⚠️ Model Brain initialization failed, trying without health check...");
+            warn!("Error: {}", e);
+            // Try without health check (allows starting without Ollama)
+            match ModelBrain::new_without_health_check(brain_config.clone()) {
+                Ok(brain) => {
+                    warn!("✅ Model Brain initialized in degraded mode (no Ollama)");
+                    warn!("   LLM features will be unavailable until Ollama is connected");
+                    brain
+                }
+                Err(e2) => {
+                    error!("❌ Model Brain initialization failed even in degraded mode");
+                    error!("Error: {}", e2);
+                    return Err(anyhow::anyhow!("Failed to initialize Model Brain"));
+                }
+            }
         }
     };
 
@@ -107,10 +110,10 @@ async fn main() -> Result<()> {
     let cache_config = CacheConfig::from_env();
     let node_cache = NodeCache::new(cache_config.clone());
     let embedding_cache = EmbeddingCache::new(cache_config);
-    
+
     // Crear progress tracker para ingestion
     let progress_tracker = create_progress_tracker();
-    
+
     // Inicializar upload manager para modelos GGUF
     info!("Initializing upload manager...");
     let storage = StorageManager::new();
@@ -119,7 +122,7 @@ async fn main() -> Result<()> {
         warn!("Failed to initialize upload manager (non-fatal): {}", e);
     }
     let upload_manager = Arc::new(upload_manager);
-    
+
     // Iniciar cleanup job para sesiones de upload expiradas (cada 60 minutos)
     let cleanup_job = UploadCleanupJob::new(upload_manager.clone(), 60);
     let _cleanup_handle = cleanup_job.start();
@@ -130,8 +133,10 @@ async fn main() -> Result<()> {
     if rem_config.enabled {
         // Clonar db y brain para el scheduler
         let db_clone = db::connection::connect_db(&db_config).await?;
-        let brain_clone = ModelBrain::new_without_health_check(BrainConfig::from_env().unwrap_or_else(|_| BrainConfig::default_local()))?;
-        
+        let brain_clone = ModelBrain::new_without_health_check(
+            BrainConfig::from_env().unwrap_or_else(|_| BrainConfig::default_local()),
+        )?;
+
         let rem_scheduler = Arc::new(RemScheduler::new(rem_config.clone(), db_clone, brain_clone));
         let _rem_handle = rem_scheduler.start();
         info!(
@@ -143,14 +148,42 @@ async fn main() -> Result<()> {
     }
 
     // Crear estado compartido
-    let state = Arc::new(RwLock::new(AppState {
+    let (status_sender, _) = broadcast::channel(64);
+    let app_state = AppState::new(
         db,
         brain,
         node_cache,
         embedding_cache,
         progress_tracker,
         upload_manager,
-    }));
+        status_sender,
+    );
+    let state: SharedState = Arc::new(RwLock::new(app_state));
+
+    // Broadcast initial status
+    // Clone needed data briefly under the lock, then release it before async health checks.
+    let (initial_db, initial_brain, initial_sender) = {
+        let g = state.read().await;
+        (g.db.clone(), g.brain.clone(), g.status_sender.clone())
+    };
+    let initial_status = check_services_health(&initial_db, &initial_brain).await;
+    let _ = initial_sender.send(initial_status);
+
+    // Spawn background task for periodic health checks
+    let state_for_task = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            // Clone what we need under the lock, then drop the guard before async calls.
+            let (db, brain, sender) = {
+                let g = state_for_task.read().await;
+                (g.db.clone(), g.brain.clone(), g.status_sender.clone())
+            };
+            let status = check_services_health(&db, &brain).await;
+            let _ = sender.send(status);
+        }
+    });
 
     // Configurar CORS (permisivo para desarrollo)
     let cors = CorsLayer::new()

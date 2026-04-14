@@ -4,11 +4,14 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { ChatMessage, ChatMessageLoading } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { Brain, Sparkles } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { getErrorMessage } from '@/utils/errors';
 
 export function ChatArea() {
   const messages = useMessages();
   const { isLoading, error, sendMessage, clearError } = useChatStore();
   const { namespace } = useSettingsStore();
+  const { t } = useTranslation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom
@@ -18,7 +21,7 @@ export function ChatArea() {
 
   // Clear error after 5 seconds
   useEffect(() => {
-    if (error) {
+    if (error != null) {
       const timer = setTimeout(clearError, 5000);
       return () => clearTimeout(timer);
     }
@@ -46,9 +49,9 @@ export function ChatArea() {
       </div>
 
       {/* Error display */}
-      {error && (
+      {error != null && (
         <div className="px-4 py-2 bg-red-900/50 border-t border-red-800 text-red-200 text-sm">
-          {error}
+          {getErrorMessage(error, t)}
         </div>
       )}
 
@@ -59,6 +62,8 @@ export function ChatArea() {
 }
 
 function EmptyState() {
+  const { t } = useTranslation();
+
   return (
     <div className="flex-1 flex items-center justify-center p-8">
       <div className="text-center max-w-md">
@@ -66,20 +71,20 @@ function EmptyState() {
           <Brain className="w-8 h-8 text-fractal-500" />
         </div>
         <h2 className="text-2xl font-bold text-white mb-2">
-          Welcome to Fractal-Mind
+          {t('chat.welcomeTitle')}
         </h2>
         <p className="text-gray-400 mb-6">
-          Your AI with evolutionary memory. Ask questions, share knowledge, and watch it learn.
+          {t('chat.welcomeDescription')}
         </p>
         <div className="grid grid-cols-1 gap-2 text-sm">
           <SuggestionChip icon={<Sparkles className="w-4 h-4" />}>
-            What can you help me with?
+            {t('chat.suggestion1')}
           </SuggestionChip>
           <SuggestionChip icon={<Sparkles className="w-4 h-4" />}>
-            Tell me about your memory system
+            {t('chat.suggestion2')}
           </SuggestionChip>
           <SuggestionChip icon={<Sparkles className="w-4 h-4" />}>
-            How do you learn new things?
+            {t('chat.suggestion3')}
           </SuggestionChip>
         </div>
       </div>

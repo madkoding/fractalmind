@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use byteorder::{LittleEndian, ReadBytesExt};
 use memmap2::Mmap;
 use std::collections::HashMap;
@@ -113,12 +113,9 @@ impl GGUFParser {
     pub fn parse_file(file_path: &str) -> Result<Self> {
         info!("Parsing GGUF file: {}", file_path);
 
-        let file = File::open(file_path)
-            .context("Failed to open GGUF file")?;
-        
-        let mmap = unsafe {
-            Mmap::map(&file).context("Failed to memory-map file")?
-        };
+        let file = File::open(file_path).context("Failed to open GGUF file")?;
+
+        let mmap = unsafe { Mmap::map(&file).context("Failed to memory-map file")? };
 
         Self::parse_bytes(&mmap)
     }
@@ -130,18 +127,28 @@ impl GGUFParser {
         // Leer cabecera
         let magic = cursor.read_u32::<LittleEndian>()?;
         if magic != GGUF_MAGIC {
-            bail!("Invalid GGUF magic number: expected {:#x}, got {:#x}", GGUF_MAGIC, magic);
+            bail!(
+                "Invalid GGUF magic number: expected {:#x}, got {:#x}",
+                GGUF_MAGIC,
+                magic
+            );
         }
 
         let version = cursor.read_u32::<LittleEndian>()?;
         if version != GGUF_VERSION {
-            warn!("GGUF version mismatch: expected {}, got {}", GGUF_VERSION, version);
+            warn!(
+                "GGUF version mismatch: expected {}, got {}",
+                GGUF_VERSION, version
+            );
         }
 
         let tensor_count = cursor.read_u64::<LittleEndian>()?;
         let metadata_kv_count = cursor.read_u64::<LittleEndian>()?;
 
-        debug!("GGUF version: {}, tensors: {}, metadata: {}", version, tensor_count, metadata_kv_count);
+        debug!(
+            "GGUF version: {}, tensors: {}, metadata: {}",
+            version, tensor_count, metadata_kv_count
+        );
 
         // Leer metadatos
         let mut metadata = HashMap::new();
@@ -160,8 +167,11 @@ impl GGUFParser {
         // The data offset is the current cursor position, aligned to 32 bytes
         let current_pos = cursor.position();
         let data_offset = (current_pos + 31) & !31;
-        
-        debug!("GGUF data offset: {} (cursor at {}, aligned to 32 bytes)", data_offset, current_pos);
+
+        debug!(
+            "GGUF data offset: {} (cursor at {}, aligned to 32 bytes)",
+            data_offset, current_pos
+        );
 
         Ok(Self {
             metadata,
@@ -207,7 +217,7 @@ impl GGUFParser {
                 let array_type = cursor.read_u32::<LittleEndian>()?;
                 let array_type = GGUFValueType::try_from(array_type)?;
                 let array_len = cursor.read_u64::<LittleEndian>()? as usize;
-                
+
                 let mut values = Vec::with_capacity(array_len);
                 for _ in 0..array_len {
                     values.push(Self::read_value(cursor, array_type)?);
@@ -221,12 +231,12 @@ impl GGUFParser {
     fn read_tensor_info(cursor: &mut Cursor<&[u8]>) -> Result<GGUFTensorInfo> {
         let name = Self::read_string(cursor)?;
         let n_dimensions = cursor.read_u32::<LittleEndian>()? as usize;
-        
+
         let mut dimensions = Vec::with_capacity(n_dimensions);
         for _ in 0..n_dimensions {
             dimensions.push(cursor.read_u64::<LittleEndian>()?);
         }
-        
+
         let tensor_type = cursor.read_u32::<LittleEndian>()?;
         let offset = cursor.read_u64::<LittleEndian>()?;
 
@@ -241,16 +251,17 @@ impl GGUFParser {
     /// Extrae la arquitectura del modelo desde los metadatos
     pub fn extract_architecture(&self) -> Result<ModelArchitecture> {
         let model_type = self.get_metadata_string("general.architecture")?;
-        
-        let prefix = format!("{}", model_type);
-        
+
+        let prefix = model_type.to_string();
+
         let n_layers = self.get_metadata_u32(&format!("{}.block_count", prefix))?;
         let embedding_dim = self.get_metadata_u32(&format!("{}.embedding_length", prefix))?;
         let n_heads = self.get_metadata_u32(&format!("{}.attention.head_count", prefix))?;
         let ffn_dim = self.get_metadata_u32(&format!("{}.feed_forward_length", prefix))?;
-        
+
         // Intentar obtener vocab_size de diferentes campos posibles
-        let vocab_size = self.get_metadata_u32("tokenizer.ggml.tokens.length")
+        let vocab_size = self
+            .get_metadata_u32("tokenizer.ggml.tokens.length")
             .or_else(|_| self.get_metadata_u32(&format!("{}.vocab_size", prefix)))
             .unwrap_or(32000); // Valor por defecto
 

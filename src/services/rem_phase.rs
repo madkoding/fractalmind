@@ -34,17 +34,13 @@ pub enum RemPhaseStatus {
         nodes_processed: usize,
     },
     /// Completed successfully.
-    Completed {
-        result: RemPhaseResult,
-    },
+    Completed { result: RemPhaseResult },
     /// Failed with error.
-    Failed {
-        error: String,
-    },
+    Failed { error: String },
 }
 
 /// Result of a REM phase run.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RemPhaseResult {
     /// Number of incomplete nodes found.
     pub incomplete_nodes_found: usize,
@@ -69,21 +65,6 @@ pub struct RemPhaseResult {
 
     /// Web search statistics.
     pub search_stats: SearchStats,
-}
-
-impl Default for RemPhaseResult {
-    fn default() -> Self {
-        Self {
-            incomplete_nodes_found: 0,
-            nodes_processed: 0,
-            nodes_created: 0,
-            nodes_updated: 0,
-            clusters_formed: 0,
-            cross_links_created: 0,
-            time_ms: 0,
-            search_stats: SearchStats::default(),
-        }
-    }
 }
 
 /// Web search statistics.
@@ -191,8 +172,10 @@ impl RemPhaseService {
             incomplete_nodes.len()
         );
 
-        let mut result = RemPhaseResult::default();
-        result.incomplete_nodes_found = incomplete_nodes.len();
+        let mut result = RemPhaseResult {
+            incomplete_nodes_found: incomplete_nodes.len(),
+            ..Default::default()
+        };
 
         // Phase 1: Process incomplete nodes
         let nodes_to_process: Vec<IncompleteNode> = incomplete_nodes
@@ -246,11 +229,7 @@ impl RemPhaseService {
             let raptor_nodes: Vec<RaptorNode> = new_nodes
                 .iter()
                 .map(|n| {
-                    RaptorNode::new(
-                        n.uuid.to_string(),
-                        n.content.clone(),
-                        n.embedding.clone(),
-                    )
+                    RaptorNode::new(n.uuid.to_string(), n.content.clone(), n.embedding.clone())
                 })
                 .collect();
 
@@ -310,16 +289,12 @@ impl RemPhaseService {
 
                     // Synthesize content from search results
                     if !response.results.is_empty() {
-                        let synth = self.synthesize_from_search(&node, &response);
+                        let synth = self.synthesize_from_search(node, &response);
                         synthesized.push(synth);
                     }
                 }
                 Err(e) => {
-                    warn!(
-                        "Web search failed for node {}: {}",
-                        node.id,
-                        e
-                    );
+                    warn!("Web search failed for node {}: {}", node.id, e);
                 }
             }
 
@@ -338,7 +313,11 @@ impl RemPhaseService {
         // Extract key phrases from content
         // For now, just use the first 100 characters
         let truncated: String = content.chars().take(100).collect();
-        truncated.split_whitespace().take(10).collect::<Vec<_>>().join(" ")
+        truncated
+            .split_whitespace()
+            .take(10)
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// Synthesizes a new node from search results.
@@ -350,11 +329,7 @@ impl RemPhaseService {
         // Combine snippets from search results
         let combined_content = search.combined_snippets();
 
-        let sources: Vec<String> = search
-            .results
-            .iter()
-            .map(|r| r.url.clone())
-            .collect();
+        let sources: Vec<String> = search.results.iter().map(|r| r.url.clone()).collect();
 
         let content = format!(
             "# Synthesized Knowledge\n\n\
@@ -362,7 +337,11 @@ impl RemPhaseService {
              **Sources:**\n{}\n\n\
              **Combined Information:**\n{}",
             original.content,
-            sources.iter().map(|s| format!("- {}", s)).collect::<Vec<_>>().join("\n"),
+            sources
+                .iter()
+                .map(|s| format!("- {}", s))
+                .collect::<Vec<_>>()
+                .join("\n"),
             combined_content
         );
 
@@ -487,7 +466,9 @@ mod tests {
     fn mock_embedding(text: &str) -> EmbeddingVector {
         // Create deterministic embedding based on text hash
         let hash = text.bytes().fold(0u64, |acc, b| acc.wrapping_add(b as u64));
-        let values: Vec<f32> = (0..768).map(|i| ((hash + i as u64) % 100) as f32 / 100.0).collect();
+        let values: Vec<f32> = (0..768)
+            .map(|i| ((hash + i as u64) % 100) as f32 / 100.0)
+            .collect();
         EmbeddingVector::new(values, EmbeddingModel::NomicEmbedTextV15)
     }
 
@@ -527,9 +508,7 @@ mod tests {
             .with_web_search(true)
             .with_clustering(false);
 
-        let service = RemPhaseServiceBuilder::new()
-            .with_config(config)
-            .build();
+        let service = RemPhaseServiceBuilder::new().with_config(config).build();
 
         let nodes = vec![
             create_incomplete_node("What is quantum computing?"),
@@ -563,9 +542,7 @@ mod tests {
             .with_clustering(true)
             .with_batch_size(5);
 
-        let service = RemPhaseServiceBuilder::new()
-            .with_config(config)
-            .build();
+        let service = RemPhaseServiceBuilder::new().with_config(config).build();
 
         let nodes = vec![
             create_incomplete_node("Topic A: Introduction to Rust"),

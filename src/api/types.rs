@@ -77,7 +77,7 @@ pub struct IngestFileResponse {
 // ============================================================================
 
 /// Request to store episodic memory
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct RememberRequest {
     /// The content to remember
     pub content: String,
@@ -86,10 +86,14 @@ pub struct RememberRequest {
     pub context: Option<String>,
 
     /// Related node IDs
-    pub related_nodes: Option<Vec<String>>,
+    #[serde(alias = "related_nodes")]
+    pub related_to: Option<Vec<String>>,
 
     /// User identifier for personal namespace
     pub user_id: Option<String>,
+
+    /// Language preference
+    pub language: Option<String>,
 }
 
 /// Response from remember operation
@@ -189,7 +193,7 @@ pub struct SyncRemResponse {
 // ============================================================================
 
 /// Request to update an existing memory node
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct MemoryUpdateRequest {
     /// ID of the node to update
     pub node_id: String,
@@ -205,6 +209,22 @@ pub struct MemoryUpdateRequest {
 
     /// Mark as deprecated
     pub deprecated: Option<bool>,
+
+    /// Whether to regenerate embedding when content changes
+    pub regenerate_embedding: Option<bool>,
+
+    /// New source
+    pub source: Option<String>,
+
+    /// Additional metadata updates
+    pub metadata: Option<MetadataUpdate>,
+}
+
+/// Metadata update fields
+#[derive(Deserialize, Debug)]
+pub struct MetadataUpdate {
+    pub language: Option<String>,
+    pub access_count: Option<u64>,
 }
 
 /// Response from memory update operation
@@ -281,13 +301,13 @@ pub struct SearchResponse {
 pub struct BuildFractalRequest {
     /// Namespace to build fractal for
     pub namespace: Option<String>,
-    
+
     /// Whether to generate summaries using LLM
     pub generate_summaries: Option<bool>,
-    
+
     /// Minimum similarity threshold for clustering (0.0 to 1.0)
     pub similarity_threshold: Option<f32>,
-    
+
     /// Maximum depth of the fractal tree
     pub max_depth: Option<usize>,
 }
@@ -362,7 +382,10 @@ mod tests {
         let request: IngestRequest = serde_json::from_str(json).unwrap();
         assert_eq!(request.content, "Test content");
         assert_eq!(request.source, Some("test.txt".to_string()));
-        assert_eq!(request.tags, Some(vec!["tag1".to_string(), "tag2".to_string()]));
+        assert_eq!(
+            request.tags,
+            Some(vec!["tag1".to_string(), "tag2".to_string()])
+        );
     }
 
     #[test]
@@ -450,7 +473,7 @@ pub struct DeleteModelResponse {
 /// Request to update model strategy
 #[derive(Deserialize)]
 pub struct UpdateStrategyRequest {
-    pub strategy: String, // "fractal" or "ollama"
+    pub strategy: String,         // "fractal" or "ollama"
     pub model_id: Option<String>, // Required if strategy is "fractal"
 }
 
@@ -522,13 +545,13 @@ pub struct UploadChunkResponse {
 /// Combined progress response
 #[derive(Serialize)]
 pub struct ProgressResponse {
-    pub upload_progress: f32,      // 0-100
-    pub conversion_progress: f32,  // 0-100
-    pub status: String,            // "uploading", "finalizing", "converting", "ready", "failed"
+    pub upload_progress: f32,     // 0-100
+    pub conversion_progress: f32, // 0-100
+    pub status: String,           // "uploading", "finalizing", "converting", "ready", "failed"
     pub upload_speed_mbps: Option<f32>,
     pub chunks_received: Option<u64>,
     pub total_chunks: Option<u64>,
-    pub current_phase: Option<String>,  // For conversion: "parsing", "clustering", etc.
+    pub current_phase: Option<String>, // For conversion: "parsing", "clustering", etc.
 }
 
 /// Response from upload finalization
@@ -544,4 +567,59 @@ pub struct FinalizeUploadResponse {
 pub struct CancelUploadResponse {
     pub success: bool,
     pub message: String,
+}
+
+// ============================================================================
+// LLM Configuration API
+// ============================================================================
+
+/// Request to update LLM provider configuration
+#[derive(Deserialize)]
+pub struct UpdateLLMConfigRequest {
+    /// Provider type: "ollama" for local, "ollama-cloud" for Ollama API
+    pub provider_type: String,
+
+    /// Base URL for Ollama (local or cloud)
+    #[serde(default = "default_ollama_base_url")]
+    pub ollama_base_url: String,
+
+    /// API key for Ollama Cloud (optional for local)
+    pub ollama_api_key: Option<String>,
+
+    /// Model names (optional, uses defaults if not provided)
+    pub embedding_model: Option<String>,
+    pub chat_model: Option<String>,
+    pub summarizer_model: Option<String>,
+}
+
+fn default_ollama_base_url() -> String {
+    "http://localhost:11434".to_string()
+}
+
+/// Response from LLM config update
+#[derive(Serialize)]
+pub struct UpdateLLMConfigResponse {
+    pub success: bool,
+    pub message: String,
+    pub config: LLMConfigStatus,
+}
+
+/// Current LLM configuration status
+#[derive(Serialize)]
+pub struct LLMConfigStatus {
+    pub provider_type: String,
+    pub ollama_base_url: String,
+    pub is_cloud: bool,
+    pub embedding_model: String,
+    pub chat_model: String,
+    pub summarizer_model: String,
+    pub health_status: ProviderHealthStatus,
+}
+
+/// Health status of each provider
+#[derive(Serialize)]
+pub struct ProviderHealthStatus {
+    pub embedding: bool,
+    pub chat: bool,
+    pub summarizer: bool,
 }

@@ -61,15 +61,14 @@ impl ModelProvider {
 
     /// Verifica si el proveedor requiere API key
     pub fn requires_api_key(&self) -> bool {
-        matches!(
-            self,
-            ModelProvider::Ollama {
-                api_key: Some(_),
-                ..
-            } | ModelProvider::OpenAI { .. }
-                | ModelProvider::Anthropic { .. }
-                | ModelProvider::HuggingFace { .. }
-        )
+        match self {
+            // Cloud Ollama (api_key: Some) always requires a non-empty key
+            ModelProvider::Ollama { api_key, .. } => api_key.is_some(),
+            ModelProvider::OpenAI { .. } => true,
+            ModelProvider::Anthropic { .. } => true,
+            ModelProvider::HuggingFace { .. } => true,
+            _ => false,
+        }
     }
 
     /// Obtiene el nombre del modelo
@@ -145,7 +144,7 @@ impl ModelConfig {
             model_type: ModelType::Embedding,
             provider: ModelProvider::Ollama {
                 base_url: "http://localhost:11434".to_string(),
-                model_name: "nomic-embed-text:latest".to_string(),
+                model_name: "qwen3-embedding:0.6b".to_string(),
                 api_key: None,
             },
             temperature: 0.0, // Embeddings no usan temperatura
@@ -163,7 +162,7 @@ impl ModelConfig {
             model_type: ModelType::Chat,
             provider: ModelProvider::Ollama {
                 base_url: "http://localhost:11434".to_string(),
-                model_name: "llama2".to_string(),
+                model_name: "llama3.2:1b".to_string(),
                 api_key: None,
             },
             temperature: 0.7,
@@ -181,7 +180,7 @@ impl ModelConfig {
             model_type: ModelType::Summarizer,
             provider: ModelProvider::Ollama {
                 base_url: "http://localhost:11434".to_string(),
-                model_name: "llama2".to_string(),
+                model_name: "llama3.2:1b".to_string(),
                 api_key: None,
             },
             temperature: 0.3, // Más determinista para resúmenes consistentes
@@ -241,7 +240,7 @@ impl ModelConfig {
         if self.provider.requires_api_key() {
             match &self.provider {
                 ModelProvider::Ollama { api_key, .. } => {
-                    if api_key.as_ref().map_or(true, |k| k.is_empty()) {
+                    if api_key.as_ref().is_none_or(|k| k.is_empty()) {
                         bail!("API key is required for remote provider");
                     }
                 }
@@ -313,7 +312,7 @@ impl BrainConfig {
         Ok(())
     }
 
-    /// Carga configuración desde variables de entorno
+    /// Carga configuración desde variables de entorno y config/secrets.json
     pub fn from_env() -> Result<Self> {
         let prefer_local = std::env::var("LLM_PREFER_LOCAL")
             .unwrap_or_else(|_| "true".to_string())
@@ -323,13 +322,17 @@ impl BrainConfig {
         let ollama_base_url = std::env::var("OLLAMA_BASE_URL")
             .unwrap_or_else(|_| "http://localhost:11434".to_string());
 
-        let ollama_api_key = std::env::var("OLLAMA_API_KEY").ok();
+        // Load API keys from config/secrets.json
+        let secrets = crate::config::load_secrets();
+        let ollama_api_key = secrets
+            .get_ollama_api_key()
+            .or_else(|| std::env::var("OLLAMA_API_KEY").ok());
 
         // Embedding model
         let embedding_provider =
             std::env::var("EMBEDDING_PROVIDER").unwrap_or_else(|_| "ollama".to_string());
-        let embedding_model_name = std::env::var("EMBEDDING_MODEL")
-            .unwrap_or_else(|_| "nomic-embed-text:latest".to_string());
+        let embedding_model_name =
+            std::env::var("EMBEDDING_MODEL").unwrap_or_else(|_| "qwen3-embedding:0.6b".to_string());
         let ollama_cloud_base_url = std::env::var("OLLAMA_CLOUD_BASE_URL")
             .unwrap_or_else(|_| "https://api.ollama.com".to_string());
         let embedding_model = match embedding_provider.as_str() {
@@ -366,7 +369,8 @@ impl BrainConfig {
 
         // Chat model
         let chat_provider = std::env::var("CHAT_PROVIDER").unwrap_or_else(|_| "ollama".to_string());
-        let chat_model_name = std::env::var("CHAT_MODEL").unwrap_or_else(|_| "llama2".to_string());
+        let chat_model_name =
+            std::env::var("CHAT_MODEL").unwrap_or_else(|_| "llama3.2:1b".to_string());
         let chat_temperature: f32 = std::env::var("CHAT_TEMPERATURE")
             .unwrap_or_else(|_| "0.7".to_string())
             .parse()
@@ -425,7 +429,7 @@ impl BrainConfig {
         let summarizer_provider =
             std::env::var("SUMMARIZER_PROVIDER").unwrap_or_else(|_| "ollama".to_string());
         let summarizer_model_name =
-            std::env::var("SUMMARIZER_MODEL").unwrap_or_else(|_| "llama2".to_string());
+            std::env::var("SUMMARIZER_MODEL").unwrap_or_else(|_| "llama3.2:1b".to_string());
         let summarizer_temperature: f32 = std::env::var("SUMMARIZER_TEMPERATURE")
             .unwrap_or_else(|_| "0.3".to_string())
             .parse()
@@ -486,14 +490,14 @@ mod tests {
     fn test_model_provider_is_local() {
         let ollama_local = ModelProvider::Ollama {
             base_url: "http://localhost:11434".to_string(),
-            model_name: "llama2".to_string(),
+            model_name: "llama3.2:1b".to_string(),
             api_key: None,
         };
         assert!(ollama_local.is_local());
 
         let ollama_cloud = ModelProvider::Ollama {
             base_url: "https://cloud.ollama.com".to_string(),
-            model_name: "llama2".to_string(),
+            model_name: "llama3.2:1b".to_string(),
             api_key: Some("sk-xxx".to_string()),
         };
         assert!(!ollama_cloud.is_local());

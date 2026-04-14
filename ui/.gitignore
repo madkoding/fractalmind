@@ -26,3 +26,4 @@ npm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+src-tauri/gen/schemas/
