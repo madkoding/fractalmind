@@ -119,7 +119,8 @@ export const useSettingsStore = create<SettingsState>()(
             languageMode: DEFAULT_SETTINGS.languageMode,
             detectedLanguage: resolvedLanguage,
           });
-        }).catch(() => {
+        }).catch((err: unknown) => {
+          console.error('Failed to apply language during reset:', err);
           useSettingsStore.setState({ language: DEFAULT_LANGUAGE, detectedLanguage: DEFAULT_LANGUAGE });
         });
       },
