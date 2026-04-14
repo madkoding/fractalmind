@@ -6,10 +6,10 @@ use anyhow::Result;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
-use crate::models::{EmbeddingModel, EmbeddingVector};
 use super::config::EmbeddingConfig;
-use super::provider::{BatchEmbeddingResult, EmbeddingProvider, EmbeddingResult};
 use super::mock_provider::MockEmbeddingProvider;
+use super::provider::{BatchEmbeddingResult, EmbeddingProvider, EmbeddingResult};
+use crate::models::{EmbeddingModel, EmbeddingVector};
 
 /// Main embedding service
 ///
@@ -102,7 +102,10 @@ impl EmbeddingService {
         }
 
         let owned_texts: Vec<String> = non_empty_texts.into_iter().cloned().collect();
-        debug!("Generating batch embeddings for {} texts", owned_texts.len());
+        debug!(
+            "Generating batch embeddings for {} texts",
+            owned_texts.len()
+        );
         self.provider.embed_batch(&owned_texts).await
     }
 

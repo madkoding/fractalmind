@@ -136,10 +136,14 @@ impl Raptor {
                 .collect();
 
             let embeddings: Vec<&EmbeddingVector> = members.iter().map(|n| &n.embedding).collect();
-            let centroid = compute_centroid(&embeddings)
-                .unwrap_or_else(|| members[0].embedding.clone());
+            let centroid =
+                compute_centroid(&embeddings).unwrap_or_else(|| members[0].embedding.clone());
 
-            let combined_content: String = members.iter().map(|n| n.content.as_str()).collect::<Vec<_>>().join("\n\n");
+            let combined_content: String = members
+                .iter()
+                .map(|n| n.content.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n");
 
             let internal_sim = if embeddings.len() > 1 {
                 average_pairwise_similarity(&embeddings)
@@ -168,12 +172,12 @@ impl Raptor {
 
         // Step 2: Recursively build parent levels
         let mut depth = 1;
-        while current_level_ids.len() > 1 && (self.config.max_depth == 0 || depth <= self.config.max_depth) {
+        while current_level_ids.len() > 1
+            && (self.config.max_depth == 0 || depth <= self.config.max_depth)
+        {
             let current_nodes: Vec<(&String, &EmbeddingVector)> = current_level_ids
                 .iter()
-                .filter_map(|id| {
-                    tree_nodes.get(id).map(|n| (id, &n.centroid))
-                })
+                .filter_map(|id| tree_nodes.get(id).map(|n| (id, &n.centroid)))
                 .collect();
 
             if current_nodes.len() < 2 {
@@ -186,7 +190,9 @@ impl Raptor {
             let mut next_level_ids = Vec::new();
 
             for cluster in parent_clusters {
-                if cluster.size() < 2 && next_level_ids.len() + current_level_ids.len() > cluster.size() {
+                if cluster.size() < 2
+                    && next_level_ids.len() + current_level_ids.len() > cluster.size()
+                {
                     // Skip singleton clusters at higher levels
                     continue;
                 }
@@ -203,12 +209,7 @@ impl Raptor {
                 let combined_content: String = child_ids
                     .iter()
                     .filter_map(|id| tree_nodes.get(id))
-                    .map(|n| {
-                        n.summary
-                            .as_ref()
-                            .map(|s| s.as_str())
-                            .unwrap_or(&n.combined_content)
-                    })
+                    .map(|n| n.summary.as_deref().unwrap_or(&n.combined_content))
                     .collect::<Vec<_>>()
                     .join("\n\n---\n\n");
 
@@ -387,7 +388,9 @@ impl Raptor {
         for i in 0..n {
             if active[i] {
                 let cluster_idx = cluster_map[&i];
-                if !seen.contains(&cluster_idx) && clusters[cluster_idx].size() >= self.config.min_cluster_size {
+                if !seen.contains(&cluster_idx)
+                    && clusters[cluster_idx].size() >= self.config.min_cluster_size
+                {
                     seen.insert(cluster_idx);
                     result.push(clusters[cluster_idx].clone());
                 }
@@ -397,7 +400,9 @@ impl Raptor {
         // Add singleton clusters that didn't get merged (if below min size)
         for i in 0..n {
             let cluster_idx = cluster_map[&i];
-            if clusters[cluster_idx].size() < self.config.min_cluster_size && !seen.contains(&cluster_idx) {
+            if clusters[cluster_idx].size() < self.config.min_cluster_size
+                && !seen.contains(&cluster_idx)
+            {
                 // Create individual cluster for orphans
                 let mut cluster = Cluster::new(vec![ids[i].clone()]);
                 cluster.set_depth(0);
@@ -677,7 +682,10 @@ mod tests {
             assert!(!path.is_empty());
             // Path should go from leaf to root
             if path.len() > 1 {
-                assert!(path[0].depth <= path[path.len() - 1].depth || path[path.len() - 1].parent_id.is_none());
+                assert!(
+                    path[0].depth <= path[path.len() - 1].depth
+                        || path[path.len() - 1].parent_id.is_none()
+                );
             }
         }
     }

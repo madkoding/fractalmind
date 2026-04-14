@@ -6,9 +6,9 @@ use std::sync::Arc;
 use surrealdb::sql::Thing;
 use tracing::{debug, info};
 
-use crate::models::FractalNode;
 use super::config::{CacheConfig, CacheMetrics};
 use super::lru_cache::ThreadSafeLruCache;
+use crate::models::FractalNode;
 
 /// Specialized cache for FractalNodes
 ///
@@ -161,10 +161,7 @@ mod tests {
     use surrealdb::sql::Id;
 
     fn create_test_node(id: &str) -> FractalNode {
-        let embedding = EmbeddingVector::new(
-            vec![0.1; 768],
-            EmbeddingModel::NomicEmbedTextV15,
-        );
+        let embedding = EmbeddingVector::new(vec![0.1; 768], EmbeddingModel::NomicEmbedTextV15);
 
         let mut node = FractalNode::new_leaf(
             format!("Content for node {}", id),
@@ -207,10 +204,7 @@ mod tests {
     fn test_node_cache_without_id() {
         let cache = NodeCache::with_capacity(10);
 
-        let embedding = EmbeddingVector::new(
-            vec![0.1; 768],
-            EmbeddingModel::NomicEmbedTextV15,
-        );
+        let embedding = EmbeddingVector::new(vec![0.1; 768], EmbeddingModel::NomicEmbedTextV15);
 
         let node = FractalNode::new_leaf(
             "No ID node".to_string(),
@@ -229,9 +223,7 @@ mod tests {
     fn test_node_cache_batch() {
         let cache = NodeCache::with_capacity(10);
 
-        let nodes: Vec<FractalNode> = (1..=5)
-            .map(|i| create_test_node(&i.to_string()))
-            .collect();
+        let nodes: Vec<FractalNode> = (1..=5).map(|i| create_test_node(&i.to_string())).collect();
 
         let cached = cache.put_batch(&nodes);
         assert_eq!(cached, 5);

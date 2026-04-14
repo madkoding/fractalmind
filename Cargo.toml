@@ -14,7 +14,7 @@ async-trait = "0.1"
 async-stream = "0.3"
 
 # Web Framework
-axum = { version = "0.7", features = ["macros", "multipart"] }
+axum = { version = "0.7", features = ["macros", "multipart", "ws"] }
 tower = { version = "0.5", features = ["full"] }
 tower-http = { version = "0.5", features = ["trace", "cors", "timeout"] }
 http = "1.1"
@@ -71,7 +71,7 @@ tesseract = { version = "0.14", optional = true }
 pdf-extract = { version = "0.10", optional = true }
 
 # Clustering algorithms para RAPTOR
-linfa = { version = "0.7", optional = true }
+linfa = { version = "0.8", optional = true }
 linfa-clustering = { version = "0.8", optional = true }
 
 # GGUF model parsing
@@ -83,11 +83,12 @@ sha2 = "0.10"
 
 # Bytes for streaming uploads
 bytes = "1.5"
-half = "2.7.1"
+half = "2.0"
 
 [dev-dependencies]
 mockall = "0.13"
 criterion = "0.5"
+tempfile = "3"
 
 [features]
 default = []

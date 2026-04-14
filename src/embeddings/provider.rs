@@ -2,9 +2,9 @@
 
 #![allow(dead_code)]
 
+use crate::models::{EmbeddingModel, EmbeddingVector};
 use anyhow::Result;
 use async_trait::async_trait;
-use crate::models::{EmbeddingModel, EmbeddingVector};
 
 /// Result of an embedding operation
 #[derive(Debug, Clone)]
@@ -79,10 +79,8 @@ mod tests {
 
     #[test]
     fn test_embedding_result_creation() {
-        let embedding = EmbeddingVector::new(
-            vec![0.1, 0.2, 0.3],
-            EmbeddingModel::NomicEmbedTextV15,
-        );
+        let embedding =
+            EmbeddingVector::new(vec![0.1, 0.2, 0.3], EmbeddingModel::NomicEmbedTextV15);
         let result = EmbeddingResult {
             embedding,
             latency_ms: 100,

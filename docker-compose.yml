@@ -1,12 +1,27 @@
-version: '3.8'
-
 services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: fractalmind-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./data/ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - fractalmind-network
+
   surrealdb:
     image: surrealdb/surrealdb:v1.5.6
     container_name: fractalmind-db
-    restart: unless-stopped
-    user: "1000:1000"
-    # No exposed ports - only accessible via docker network
+    restart: "no"
+    ports:
+      - "8000:8000"
     command:
       - start
       - --log=info
@@ -14,7 +29,7 @@ services:
       - --pass=root
       - --bind
       - 0.0.0.0:8000
-      - memory
+      - file:///data/fractalmind.db
     volumes:
       - ./data/surrealdb:/data
     environment:
@@ -32,25 +47,29 @@ services:
     image: searxng/searxng:latest
     container_name: fractalmind-searxng
     restart: unless-stopped
-    # No exposed ports - only accessible via docker network
+    ports:
+      - "18080:8080"
     volumes:
       - ./data/searxng:/etc/searxng
-      - ./searxng:/searxng
     environment:
-      - SEARXNG_BASE_URL=http://localhost:8080/
+      - SEARXNG_BASE_URL=http://searxng:8080/
       - UWSGI_WORKERS=2
       - UWSGI_THREADS=2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - fractalmind-network
 
-  # Servicio backend Rust
   fractalmind-api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: fractalmind-api
-    restart: unless-stopped
-    # Only fractalmind API exposed to host
+    restart: "no"
     ports:
       - "12000:9000"
     extra_hosts:
@@ -58,15 +77,19 @@ services:
     depends_on:
       surrealdb:
         condition: service_healthy
+      ollama:
+        condition: service_healthy
     environment:
       - RUST_LOG=debug,fractalmind=trace
-      - SURREAL_URL=ws://surrealdb:8000
+      - SERVER_PORT=9000
+      - SURREAL_URL=http://surrealdb:8000
       - SURREAL_USER=root
       - SURREAL_PASS=root
       - SURREAL_NS=fractalmind
       - SURREAL_DB=knowledge
       - WEB_SEARCH_PROVIDER=searxng
       - WEB_SEARCH_BASE_URL=http://searxng:8080
+      - OLLAMA_BASE_URL=http://ollama:11434
     volumes:
       - ./target:/app/target
     networks:
@@ -75,7 +98,3 @@ services:
 networks:
   fractalmind-network:
     driver: bridge
-
-volumes:
-  surrealdb-data:
-  searxng-data:

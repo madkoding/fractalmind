@@ -6,9 +6,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info};
 
-use crate::models::EmbeddingVector;
 use super::config::{CacheConfig, CacheMetrics};
 use super::lru_cache::ThreadSafeLruCache;
+use crate::models::EmbeddingVector;
 
 /// Specialized cache for embedding vectors
 ///
@@ -22,7 +22,10 @@ pub struct EmbeddingCache {
 impl EmbeddingCache {
     /// Creates a new embedding cache with the given configuration
     pub fn new(config: CacheConfig) -> Self {
-        info!("Initializing EmbeddingCache with capacity: {}", config.capacity);
+        info!(
+            "Initializing EmbeddingCache with capacity: {}",
+            config.capacity
+        );
         Self {
             cache: ThreadSafeLruCache::new(config),
         }
@@ -167,10 +170,7 @@ mod tests {
     use crate::models::EmbeddingModel;
 
     fn create_test_embedding(value: f32) -> EmbeddingVector {
-        EmbeddingVector::new(
-            vec![value; 768],
-            EmbeddingModel::NomicEmbedTextV15,
-        )
+        EmbeddingVector::new(vec![value; 768], EmbeddingModel::NomicEmbedTextV15)
     }
 
     #[test]
@@ -212,7 +212,11 @@ mod tests {
     fn test_batch_put() {
         let cache = EmbeddingCache::with_capacity(10);
 
-        let texts = vec!["text1".to_string(), "text2".to_string(), "text3".to_string()];
+        let texts = vec![
+            "text1".to_string(),
+            "text2".to_string(),
+            "text3".to_string(),
+        ];
         let embeddings: Vec<EmbeddingVector> = (1..=3)
             .map(|i| create_test_embedding(i as f32 * 0.1))
             .collect();

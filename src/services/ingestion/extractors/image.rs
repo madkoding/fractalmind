@@ -25,7 +25,7 @@ impl ImageExtractor {
         Self {
             language: "eng".to_string(),
             max_size: 50 * 1024 * 1024, // 50MB
-            page_seg_mode: 3, // Fully automatic page segmentation
+            page_seg_mode: 3,           // Fully automatic page segmentation
         }
     }
 
@@ -94,7 +94,8 @@ impl ImageExtractor {
         }
 
         // TIFF (little-endian and big-endian)
-        if data.starts_with(&[0x49, 0x49, 0x2A, 0x00]) || data.starts_with(&[0x4D, 0x4D, 0x00, 0x2A])
+        if data.starts_with(&[0x49, 0x49, 0x2A, 0x00])
+            || data.starts_with(&[0x4D, 0x4D, 0x00, 0x2A])
         {
             return Some("image/tiff");
         }
@@ -121,9 +122,7 @@ impl ImageExtractor {
             .map_err(|e| anyhow!("Failed to set image: {}", e))?;
 
         // Perform OCR
-        let text = tess
-            .get_text()
-            .map_err(|e| anyhow!("OCR failed: {}", e))?;
+        let text = tess.get_text().map_err(|e| anyhow!("OCR failed: {}", e))?;
 
         Ok(self.clean_ocr_text(&text))
     }
@@ -261,11 +260,17 @@ mod tests {
 
         // PNG
         let png_header = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-        assert_eq!(extractor.detect_image_format(&png_header), Some("image/png"));
+        assert_eq!(
+            extractor.detect_image_format(&png_header),
+            Some("image/png")
+        );
 
         // JPEG
         let jpg_header = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46];
-        assert_eq!(extractor.detect_image_format(&jpg_header), Some("image/jpeg"));
+        assert_eq!(
+            extractor.detect_image_format(&jpg_header),
+            Some("image/jpeg")
+        );
 
         // GIF
         let gif_header = b"GIF89a\x00\x00";

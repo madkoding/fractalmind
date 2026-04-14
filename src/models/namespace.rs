@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// Namespace para separación de memoria global vs personal
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -179,10 +179,7 @@ mod tests {
 
     #[test]
     fn test_scope_full_access() {
-        let scope = Scope::new_full_access(
-            "alice".to_string(),
-            "user_alice".to_string(),
-        );
+        let scope = Scope::new_full_access("alice".to_string(), "user_alice".to_string());
 
         assert!(scope.can_write());
         assert!(scope.can_delete());
@@ -191,10 +188,7 @@ mod tests {
 
     #[test]
     fn test_scope_read_only() {
-        let scope = Scope::new_read_only(
-            "bob".to_string(),
-            "global_knowledge".to_string(),
-        );
+        let scope = Scope::new_read_only("bob".to_string(), "global_knowledge".to_string());
 
         assert!(!scope.can_write());
         assert!(!scope.can_delete());
@@ -205,10 +199,7 @@ mod tests {
     fn test_scope_expiration() {
         use chrono::Duration;
 
-        let mut scope = Scope::new_full_access(
-            "alice".to_string(),
-            "user_alice".to_string(),
-        );
+        let mut scope = Scope::new_full_access("alice".to_string(), "user_alice".to_string());
 
         // Scope sin expiración
         assert!(!scope.is_expired());

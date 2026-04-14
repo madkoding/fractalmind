@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 
 /// Mensaje de chat
 #[derive(Debug, Clone)]

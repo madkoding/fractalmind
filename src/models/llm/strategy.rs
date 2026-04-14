@@ -3,15 +3,17 @@
 //! Este módulo define las estrategias para utilizar modelos locales (Fractal)
 //! o remotos (Ollama) para generar embeddings, chat y resúmenes.
 
+#![allow(dead_code)]
+
 use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::traits_llm::{ChatMessage, ChatResponse, EmbeddingResponse};
+use super::traits_llm::{ChatMessage, ChatResponse, ChatRole, EmbeddingResponse};
 use crate::db::connection::DatabaseConnection;
-use crate::db::queries::{NodeRepository, EdgeRepository};
-use crate::graph::{Sssp, GraphNode};
+use crate::db::queries::{EdgeRepository, NodeRepository};
+use crate::graph::{GraphNode, Sssp};
 
 // ============================================================================
 // FractalModelStrategy Configuration
@@ -30,14 +32,18 @@ pub struct FractalModelStrategyConfig {
     pub graph_weight: f32,
     /// URL base para Ollama
     pub ollama_base_url: String,
+    /// Nombre del modelo de embedding en Ollama
+    pub ollama_embedding_model: String,
+    /// Dimensión del vector de embedding (depende del modelo)
+    pub ollama_embedding_dimension: usize,
     /// Temperatura para chat
     pub chat_temperature: f32,
     /// Máximo de tokens para chat
-    pub chat_max_tokens: usize,
+    pub chat_max_tokens: u32,
     /// Temperatura para sumarización
     pub summarizer_temperature: f32,
     /// Máximo de tokens para sumarización
-    pub summarizer_max_tokens: usize,
+    pub summarizer_max_tokens: u32,
 }
 
 impl Default for FractalModelStrategyConfig {
@@ -48,6 +54,8 @@ impl Default for FractalModelStrategyConfig {
             vector_weight: 0.7,
             graph_weight: 0.3,
             ollama_base_url: "http://localhost:11434".to_string(),
+            ollama_embedding_model: "nomic-embed-text".to_string(),
+            ollama_embedding_dimension: 768,
             chat_temperature: 0.7,
             chat_max_tokens: 2048,
             summarizer_temperature: 0.3,
@@ -82,13 +90,13 @@ impl FractalModelStrategyConfig {
         self
     }
 
-    pub fn with_chat_config(mut self, temperature: f32, max_tokens: usize) -> Self {
+    pub fn with_chat_config(mut self, temperature: f32, max_tokens: u32) -> Self {
         self.chat_temperature = temperature;
         self.chat_max_tokens = max_tokens;
         self
     }
 
-    pub fn with_summarizer_config(mut self, temperature: f32, max_tokens: usize) -> Self {
+    pub fn with_summarizer_config(mut self, temperature: f32, max_tokens: u32) -> Self {
         self.summarizer_temperature = temperature;
         self.summarizer_max_tokens = max_tokens;
         self
@@ -97,19 +105,29 @@ impl FractalModelStrategyConfig {
     pub fn from_env() -> Self {
         let default_namespace = std::env::var("FRACTAL_DEFAULT_NAMESPACE")
             .unwrap_or_else(|_| "global_knowledge".to_string());
-        
+
         let max_results = std::env::var("FRACTAL_MAX_RESULTS")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(5);
-        
+
         let ollama_base_url = std::env::var("OLLAMA_BASE_URL")
             .unwrap_or_else(|_| "http://localhost:11434".to_string());
+
+        let ollama_embedding_model = std::env::var("OLLAMA_EMBEDDING_MODEL")
+            .unwrap_or_else(|_| "nomic-embed-text".to_string());
+
+        let ollama_embedding_dimension = std::env::var("OLLAMA_EMBEDDING_DIMENSION")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(768);
 
         Self {
             default_namespace,
             max_results,
             ollama_base_url,
+            ollama_embedding_model,
+            ollama_embedding_dimension,
             ..Default::default()
         }
     }
@@ -148,15 +166,19 @@ pub struct FractalModelStrategy {
 
 impl FractalModelStrategy {
     pub fn new(model_id: String, db: DatabaseConnection) -> Self {
-        Self { 
+        Self {
             model_id,
             db: Arc::new(RwLock::new(db)),
             config: FractalModelStrategyConfig::default(),
         }
     }
 
-    pub fn with_config(model_id: String, db: DatabaseConnection, config: FractalModelStrategyConfig) -> Self {
-        Self { 
+    pub fn with_config(
+        model_id: String,
+        db: DatabaseConnection,
+        config: FractalModelStrategyConfig,
+    ) -> Self {
+        Self {
             model_id,
             db: Arc::new(RwLock::new(db)),
             config,
@@ -164,20 +186,29 @@ impl FractalModelStrategy {
     }
 
     /// Navega por el grafo fractal para encontrar contexto relevante
-    async fn navigate_fractal_graph(&self, query_embedding: &[f32], namespace: &str, limit: usize) -> Result<Vec<String>> {
+    async fn navigate_fractal_graph(
+        &self,
+        query_embedding: &[f32],
+        namespace: &str,
+        limit: usize,
+    ) -> Result<Vec<String>> {
         let db = self.db.read().await;
         let node_repo = NodeRepository::new(&db);
-        
-        let results = node_repo.search_similar(query_embedding, namespace, limit * 2).await?;
-        
+
+        let results = node_repo
+            .search_similar(query_embedding, namespace, limit * 2)
+            .await?;
+
         if results.is_empty() {
             return Ok(vec![]);
         }
 
-        let mut graph: std::collections::HashMap<String, GraphNode> = std::collections::HashMap::new();
-        let mut node_contents: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-        
-        for (node, similarity) in &results {
+        let mut graph: std::collections::HashMap<String, GraphNode> =
+            std::collections::HashMap::new();
+        let mut node_contents: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+
+        for (node, _similarity) in &results {
             if let Some(id) = &node.id {
                 let id_str = id.to_string();
                 let graph_node = GraphNode::new(id_str.clone(), node.namespace.clone());
@@ -202,28 +233,33 @@ impl FractalModelStrategy {
 
         if graph.len() > 1 {
             let sssp = Sssp::with_defaults();
-            let start_node = results.first()
+            let start_node = results
+                .first()
                 .and_then(|(n, _)| n.id.as_ref())
                 .map(|id| id.to_string())
                 .unwrap_or_default();
 
             if !start_node.is_empty() {
                 let sssp_result = sssp.compute(&graph, &start_node, None);
-                
+
                 let mut ranked: Vec<(String, f32)> = node_contents
                     .keys()
                     .map(|id| {
-                        let base_sim = results.iter()
-                            .find(|(n, _)| n.id.as_ref().map(|i| i.to_string()) == *id)
+                        let base_sim = results
+                            .iter()
+                            .find(|(n, _)| n.id.as_ref().map(|i| i.to_string()) == Some(id.clone()))
                             .map(|(_, s)| *s)
                             .unwrap_or(0.5);
-                        
-                        let graph_score = sssp_result.distances.get(id)
+
+                        let graph_score = sssp_result
+                            .distances
+                            .get(id)
                             .map(|&d| 1.0 / (1.0 + d))
                             .unwrap_or(0.0);
-                        
+
                         // Usar pesos configurables
-                        let combined = base_sim * self.config.vector_weight + graph_score * self.config.graph_weight;
+                        let combined = base_sim * self.config.vector_weight
+                            + graph_score * self.config.graph_weight;
                         (id.clone(), combined)
                     })
                     .collect();
@@ -252,14 +288,14 @@ impl FractalModelStrategy {
     async fn generate_summary_with_context(&self, text: &str) -> Result<String> {
         use super::providers::OllamaSummarizer;
         use super::traits_llm::SummarizerProvider;
-        
+
         let provider = OllamaSummarizer::new(
             self.config.ollama_base_url.clone(),
             self.model_id.clone(),
             self.config.summarizer_temperature,
             self.config.summarizer_max_tokens,
         );
-        
+
         provider.summarize(text).await
     }
 }
@@ -267,35 +303,44 @@ impl FractalModelStrategy {
 #[async_trait]
 impl ModelStrategy for FractalModelStrategy {
     async fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<EmbeddingResponse>> {
-        use crate::embeddings::EmbeddingService;
-        use crate::embeddings::provider::EmbeddingProvider;
+        use super::providers::OllamaEmbedding;
+        use super::traits_llm::EmbeddingProvider;
 
-        let provider = EmbeddingService::with_nomic_embed().await?;
+        let provider = OllamaEmbedding::new(
+            self.config.ollama_base_url.clone(),
+            self.config.ollama_embedding_model.clone(),
+            self.config.ollama_embedding_dimension,
+        );
         let embeddings = provider.embed_batch(&texts).await?;
-        
-        Ok(embeddings.into_iter().map(|emb| EmbeddingResponse {
-            embedding: emb,
-            dimension: emb.len(),
-            model: self.model_id.clone(),
-            latency_ms: 0,
-        }).collect())
+
+        Ok(embeddings
+            .into_iter()
+            .map(|emb| EmbeddingResponse {
+                embedding: emb.embedding,
+                dimension: emb.dimension,
+                model: self.config.ollama_embedding_model.clone(),
+                latency_ms: emb.latency_ms,
+            })
+            .collect())
     }
 
     async fn chat(&self, messages: Vec<ChatMessage>) -> Result<ChatResponse> {
-        let query = messages.last()
+        let query = messages
+            .last()
             .map(|m| m.content.clone())
             .unwrap_or_default();
 
         // Generar embedding para la query
         let query_embeddings = self.embed_batch(vec![query.clone()]).await?;
-        
+
         // Navegar el grafo para obtener contexto
         let context = if let Some(embedding) = query_embeddings.first() {
             self.navigate_fractal_graph(
                 &embedding.embedding,
                 self.get_default_namespace(),
                 self.config.max_results,
-            ).await?
+            )
+            .await?
         } else {
             vec![]
         };
@@ -312,48 +357,41 @@ impl ModelStrategy for FractalModelStrategy {
 
         // Construir mensajes con system prompt
         let mut enriched_messages = vec![ChatMessage {
-            role: "system".to_string(),
+            role: ChatRole::System,
             content: system_prompt,
         }];
-        
+
         enriched_messages.extend(messages);
 
         // Usar Ollama para generar respuesta
         use super::providers::OllamaChat;
         use super::traits_llm::ChatProvider;
-        
+
         let provider = OllamaChat::new(
             self.config.ollama_base_url.clone(),
             self.model_id.clone(),
             self.config.chat_temperature,
             self.config.chat_max_tokens,
         );
-        
+
         provider.chat(&enriched_messages).await
     }
 
     async fn summarize(&self, text: &str) -> Result<String> {
-        use crate::graph::similarity::cosine_similarity;
-        
         // Generar embedding para el texto
         let embeddings = self.embed_batch(vec![text.to_string()]).await?;
-        
+
         // Buscar contexto relacionado en el grafo
         if let Some(embedding) = embeddings.first() {
-            let context = self.navigate_fractal_graph(
-                &embedding.embedding,
-                self.get_default_namespace(),
-                3,
-            ).await?;
+            let context = self
+                .navigate_fractal_graph(&embedding.embedding, self.get_default_namespace(), 3)
+                .await?;
 
             if !context.is_empty() {
                 // Enriquecer texto con contexto relacionado
-                let enriched_text = format!(
-                    "{}\n\nContexto relacionado:\n{}",
-                    text,
-                    context.join("\n")
-                );
-                
+                let enriched_text =
+                    format!("{}\n\nContexto relacionado:\n{}", text, context.join("\n"));
+
                 return self.generate_summary_with_context(&enriched_text).await;
             }
         }
@@ -377,14 +415,14 @@ pub struct OllamaModelStrategy {
     model_name: String,
     api_key: Option<String>,
     temperature: f32,
-    max_tokens: usize,
+    max_tokens: u32,
 }
 
 impl OllamaModelStrategy {
     pub fn new(base_url: String, model_name: String) -> Self {
-        Self { 
-            base_url, 
-            model_name, 
+        Self {
+            base_url,
+            model_name,
             api_key: None,
             temperature: 0.7,
             max_tokens: 2048,
@@ -392,9 +430,9 @@ impl OllamaModelStrategy {
     }
 
     pub fn with_api_key(base_url: String, model_name: String, api_key: String) -> Self {
-        Self { 
-            base_url, 
-            model_name, 
+        Self {
+            base_url,
+            model_name,
             api_key: Some(api_key),
             temperature: 0.7,
             max_tokens: 2048,
@@ -402,14 +440,14 @@ impl OllamaModelStrategy {
     }
 
     pub fn with_config(
-        base_url: String, 
+        base_url: String,
         model_name: String,
         temperature: f32,
-        max_tokens: usize,
+        max_tokens: u32,
     ) -> Self {
-        Self { 
-            base_url, 
-            model_name, 
+        Self {
+            base_url,
+            model_name,
             api_key: None,
             temperature,
             max_tokens,
@@ -422,7 +460,7 @@ impl ModelStrategy for OllamaModelStrategy {
     async fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<EmbeddingResponse>> {
         use super::providers::OllamaEmbedding;
         use super::traits_llm::EmbeddingProvider;
-        
+
         let provider = if let Some(key) = &self.api_key {
             OllamaEmbedding::with_api_key(
                 self.base_url.clone(),
@@ -433,21 +471,24 @@ impl ModelStrategy for OllamaModelStrategy {
         } else {
             OllamaEmbedding::new(self.base_url.clone(), self.model_name.clone(), 768)
         };
-        
+
         let embeddings = provider.embed_batch(&texts).await?;
-        
-        Ok(embeddings.into_iter().map(|emb| EmbeddingResponse {
-            embedding: emb,
-            dimension: emb.len(),
-            model: self.model_name.clone(),
-            latency_ms: 0,
-        }).collect())
+
+        Ok(embeddings
+            .into_iter()
+            .map(|emb| EmbeddingResponse {
+                embedding: emb.embedding,
+                dimension: emb.dimension,
+                model: self.model_name.clone(),
+                latency_ms: emb.latency_ms,
+            })
+            .collect())
     }
 
     async fn chat(&self, messages: Vec<ChatMessage>) -> Result<ChatResponse> {
         use super::providers::OllamaChat;
         use super::traits_llm::ChatProvider;
-        
+
         let provider = if let Some(key) = &self.api_key {
             OllamaChat::with_api_key(
                 self.base_url.clone(),
@@ -464,14 +505,14 @@ impl ModelStrategy for OllamaModelStrategy {
                 self.max_tokens,
             )
         };
-        
-        provider.chat(messages).await
+
+        provider.chat(&messages).await
     }
 
     async fn summarize(&self, text: &str) -> Result<String> {
         use super::providers::OllamaSummarizer;
         use super::traits_llm::SummarizerProvider;
-        
+
         let provider = if let Some(key) = &self.api_key {
             OllamaSummarizer::with_api_key(
                 self.base_url.clone(),
@@ -481,14 +522,9 @@ impl ModelStrategy for OllamaModelStrategy {
                 key.clone(),
             )
         } else {
-            OllamaSummarizer::new(
-                self.base_url.clone(),
-                self.model_name.clone(),
-                0.3,
-                512,
-            )
+            OllamaSummarizer::new(self.base_url.clone(), self.model_name.clone(), 0.3, 512)
         };
-        
+
         provider.summarize(text).await
     }
 
@@ -520,7 +556,7 @@ mod tests {
             .with_namespace("user_alice")
             .with_max_results(10)
             .with_weights(0.8, 0.2);
-        
+
         assert_eq!(config.default_namespace, "user_alice");
         assert_eq!(config.max_results, 10);
         assert!((config.vector_weight - 0.8).abs() < f32::EPSILON);
@@ -529,17 +565,20 @@ mod tests {
 
     #[test]
     fn test_fractal_strategy_creation() {
-        let db = crate::db::connection::DatabaseConnection::default();
-        let strategy = FractalModelStrategy::new("model:123".to_string(), db);
+        // Build strategy with a real config object to validate constructor semantics
+        // without requiring a live database connection in unit tests.
+        let strategy = FractalModelStrategy {
+            model_id: "model:123".to_string(),
+            db: Arc::new(RwLock::new(surrealdb::Surreal::init())),
+            config: FractalModelStrategyConfig::default(),
+        };
         assert_eq!(strategy.name(), "FractalModel");
     }
 
     #[test]
     fn test_ollama_strategy_creation() {
-        let strategy = OllamaModelStrategy::new(
-            "http://localhost:11434".to_string(),
-            "llama2".to_string(),
-        );
+        let strategy =
+            OllamaModelStrategy::new("http://localhost:11434".to_string(), "llama2".to_string());
         assert_eq!(strategy.name(), "Ollama");
     }
 

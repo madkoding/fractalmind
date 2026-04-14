@@ -67,9 +67,9 @@ pub fn similarity_to_centroid(point: &EmbeddingVector, centroid: &EmbeddingVecto
 }
 
 /// Finds the most similar embedding to a query from a list.
-pub fn find_most_similar<'a>(
+pub fn find_most_similar(
     query: &EmbeddingVector,
-    candidates: &'a [&EmbeddingVector],
+    candidates: &[&EmbeddingVector],
 ) -> Option<(usize, f32)> {
     if candidates.is_empty() {
         return None;
@@ -90,9 +90,9 @@ pub fn find_most_similar<'a>(
 }
 
 /// Finds the k most similar embeddings to a query.
-pub fn find_k_most_similar<'a>(
+pub fn find_k_most_similar(
     query: &EmbeddingVector,
-    candidates: &'a [&EmbeddingVector],
+    candidates: &[&EmbeddingVector],
     k: usize,
 ) -> Vec<(usize, f32)> {
     if candidates.is_empty() || k == 0 {
