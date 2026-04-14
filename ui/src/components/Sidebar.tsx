@@ -36,6 +36,7 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
   useEffect(() => {
     let socket: WebSocket | null = null;
     let reconnectTimer: number | null = null;
+    let shouldReconnect = true;
 
     const connect = () => {
       socket = new WebSocket(api.getStatusWebSocketUrl());
@@ -52,7 +53,9 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
       };
 
       socket.onclose = () => {
-        reconnectTimer = window.setTimeout(connect, 3000);
+        if (shouldReconnect) {
+          reconnectTimer = window.setTimeout(connect, 3000);
+        }
       };
 
       socket.onerror = () => {
@@ -63,10 +66,14 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
     connect();
 
     return () => {
+      shouldReconnect = false;
       if (reconnectTimer !== null) {
         window.clearTimeout(reconnectTimer);
       }
-      socket?.close();
+      if (socket) {
+        socket.onclose = null;
+        socket.close();
+      }
     };
   }, [apiUrl]);
 

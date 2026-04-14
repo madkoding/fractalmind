@@ -71,7 +71,6 @@ async fn main() -> Result<()> {
 
     // Cargar LLM config desde variables de entorno y config/secrets.json
     let brain_config = BrainConfig::from_env()?;
-    let _brain_config_clone = brain_config.clone();
 
     // Inicializar ModelBrain
     info!("Initializing Model Brain...");
