@@ -2,6 +2,8 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Upload, X, CheckCircle, AlertCircle } from 'lucide-react';
 import { api } from '@/services';
 import type { ProgressResponse } from '@/types/models';
+import { useTranslation } from 'react-i18next';
+import { getErrorMessage } from '@/utils/errors';
 
 interface ChunkedUploaderProps {
   onUploadComplete: (modelId: string) => void;
@@ -11,11 +13,12 @@ interface ChunkedUploaderProps {
 const CHUNK_SIZE = 50 * 1024 * 1024; // 50MB chunks
 
 export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderProps) => {
+  const { t } = useTranslation();
   const [file, setFile] = useState<File | null>(null);
   const [uploadId, setUploadId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -39,7 +42,7 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
         // If failed, stop polling
         if (progressData.status === 'failed') {
           stopProgressPolling();
-          setError('Upload or conversion failed');
+          setError(t('uploader.error.uploadOrConversion'));
         }
       } catch (err) {
         console.error('Failed to fetch progress:', err);
@@ -89,7 +92,7 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
   const handleFileSelect = (selectedFile: File) => {
     // Validate file
     if (!selectedFile.name.toLowerCase().endsWith('.gguf')) {
-      setError('Only .gguf files are supported');
+      setError(t('uploader.error.onlyGguf'));
       return;
     }
 
@@ -144,7 +147,7 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
           } catch (err) {
             console.error(`Chunk ${chunkIndex} attempt ${attempt} failed:`, err);
             if (attempt === 3) {
-              throw new Error(`Failed to upload chunk ${chunkIndex} after 3 attempts`);
+              throw new Error(t('uploader.error.chunkUpload', { chunkIndex }));
             }
             await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
           }
@@ -160,7 +163,7 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
 
       // Progress polling will detect completion and notify parent
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed');
+      setError(err instanceof Error ? err : new Error(t('uploader.error.uploadFailed')));
       setUploading(false);
       
       // Cancel upload on server
@@ -220,16 +223,16 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
         >
           <Upload className="mx-auto h-12 w-12 text-gray-400" />
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            Drag and drop your GGUF file here, or
+            {t('uploader.dragDrop')}
           </p>
           <button
             onClick={() => fileInputRef.current?.click()}
             className="mt-2 text-sm font-medium text-purple-600 hover:text-purple-500"
           >
-            select a file
+            {t('uploader.selectFile')}
           </button>
           <p className="mt-1 text-xs text-gray-500">
-            Supports files up to 500GB
+            {t('uploader.maxSize')}
           </p>
           <input
             ref={fileInputRef}
@@ -264,7 +267,7 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
             onClick={startUpload}
             className="w-full bg-purple-600 hover:bg-purple-700 text-white py-2 px-4 rounded-lg font-medium transition-colors"
           >
-            Start Upload
+            {t('uploader.startUpload')}
           </button>
         </div>
       )}
@@ -273,9 +276,9 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
       {uploading && progress && (
         <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 space-y-4">
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-medium text-gray-900 dark:text-white">
-              {file?.name || 'Uploading...'}
-            </h4>
+              <h4 className="text-sm font-medium text-gray-900 dark:text-white">
+                {file?.name || t('uploader.uploading')}
+              </h4>
             <button
               onClick={handleCancel}
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
@@ -288,7 +291,7 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
           <div>
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
-                Upload: {progress.upload_progress.toFixed(1)}%
+                {t('uploader.uploadProgress', { progress: progress.upload_progress.toFixed(1) })}
               </span>
               {progress.upload_speed_mbps && (
                 <span className="text-xs text-gray-500">
@@ -304,7 +307,7 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
             </div>
             {progress.chunks_received !== undefined && progress.total_chunks !== undefined && (
               <p className="text-xs text-gray-500 mt-1">
-                {progress.chunks_received} / {progress.total_chunks} chunks
+                {t('uploader.chunks', { received: progress.chunks_received, total: progress.total_chunks })}
               </p>
             )}
           </div>
@@ -314,7 +317,7 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
             <div>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-medium text-green-600 dark:text-green-400">
-                  Conversion: {progress.conversion_progress.toFixed(1)}%
+                  {t('uploader.conversionProgress', { progress: progress.conversion_progress.toFixed(1) })}
                 </span>
                 {progress.current_phase && (
                   <span className="text-xs text-gray-500">
@@ -333,13 +336,13 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
 
           {/* Status */}
           <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-            {progress.status === 'uploading' && <>Uploading chunks...</>}
-            {progress.status === 'finalizing' && <>Finalizing upload...</>}
-            {progress.status === 'converting' && <>Converting to fractal structure...</>}
+            {progress.status === 'uploading' && <>{t('uploader.status.uploading')}</>}
+            {progress.status === 'finalizing' && <>{t('uploader.status.finalizing')}</>}
+            {progress.status === 'converting' && <>{t('uploader.status.converting')}</>}
             {progress.status === 'ready' && (
               <>
                 <CheckCircle className="h-4 w-4 text-green-600" />
-                Complete!
+                {t('uploader.status.complete')}
               </>
             )}
           </div>
@@ -347,12 +350,12 @@ export const ChunkedUploader = ({ onUploadComplete, onCancel }: ChunkedUploaderP
       )}
 
       {/* Error */}
-      {error && (
+      {error != null && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 flex items-start gap-3">
           <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
           <div className="flex-1">
-            <p className="text-sm font-medium text-red-800 dark:text-red-200">Upload Error</p>
-            <p className="text-sm text-red-700 dark:text-red-300 mt-1">{error}</p>
+            <p className="text-sm font-medium text-red-800 dark:text-red-200">{t('uploader.error.title')}</p>
+            <p className="text-sm text-red-700 dark:text-red-300 mt-1">{getErrorMessage(error, t)}</p>
           </div>
           <button
             onClick={() => setError(null)}

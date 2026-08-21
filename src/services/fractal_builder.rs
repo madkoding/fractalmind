@@ -329,7 +329,7 @@ impl<'a> FractalBuilder<'a> {
                 format!("children:{}", tree_node.children.len()),
                 format!("cluster:{}", tree_node.cluster_id),
             ],
-            ..NodeMetadata::default()
+            ..Default::default()
         };
 
         Ok(FractalNode::new_parent(

@@ -53,55 +53,105 @@ struct OllamaEmbedRequest {
     prompt: String,
 }
 
+#[derive(Debug, Serialize)]
+struct OllamaEmbedV2Request {
+    model: String,
+    input: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct OllamaEmbedResponse {
     embedding: Vec<f32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaEmbedV2Response {
+    embeddings: Vec<Vec<f32>>,
 }
 
 #[async_trait]
 impl EmbeddingProvider for OllamaEmbedding {
     async fn embed(&self, text: &str) -> Result<EmbeddingResponse> {
         let start = Instant::now();
-        let url = format!("{}/api/embeddings", self.base_url);
+        let url_v2 = format!("{}/api/embed", self.base_url);
+        debug!("Sending embedding request to Ollama: {}", url_v2);
 
-        let request = OllamaEmbedRequest {
+        let request_v2 = OllamaEmbedV2Request {
             model: self.model_name.clone(),
-            prompt: text.to_string(),
+            input: text.to_string(),
         };
 
-        debug!("Sending embedding request to Ollama: {}", url);
-
-        let mut request_builder = self.client.post(&url).json(&request);
-
+        let mut request_builder_v2 = self.client.post(&url_v2).json(&request_v2);
         if let Some(ref api_key) = self.api_key {
-            request_builder =
-                request_builder.header("Authorization", format!("Bearer {}", api_key));
+            request_builder_v2 =
+                request_builder_v2.header("Authorization", format!("Bearer {}", api_key));
         }
 
-        let response = request_builder
+        let response_v2 = request_builder_v2
             .send()
             .await
             .context("Failed to send embedding request to Ollama")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
+        let embedding = if response_v2.status().is_success() {
+            let ollama_response: OllamaEmbedV2Response = response_v2
+                .json()
+                .await
+                .context("Failed to parse Ollama embed response")?;
+            ollama_response
+                .embeddings
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("Ollama embed response returned no embeddings"))?
+        } else if response_v2.status() == reqwest::StatusCode::NOT_FOUND {
+            // Backward compatibility with older endpoint
+            let url_v1 = format!("{}/api/embeddings", self.base_url);
+            debug!("Falling back to legacy embedding endpoint: {}", url_v1);
+
+            let request_v1 = OllamaEmbedRequest {
+                model: self.model_name.clone(),
+                prompt: text.to_string(),
+            };
+
+            let mut request_builder_v1 = self.client.post(&url_v1).json(&request_v1);
+            if let Some(ref api_key) = self.api_key {
+                request_builder_v1 =
+                    request_builder_v1.header("Authorization", format!("Bearer {}", api_key));
+            }
+
+            let response_v1 = request_builder_v1
+                .send()
+                .await
+                .context("Failed to send embedding request to legacy Ollama endpoint")?;
+
+            if !response_v1.status().is_success() {
+                let status = response_v1.status();
+                let error_text = response_v1.text().await.unwrap_or_default();
+                return Err(anyhow::anyhow!(
+                    "Ollama embedding request failed with status {}: {}",
+                    status,
+                    error_text
+                ));
+            }
+
+            let ollama_response: OllamaEmbedResponse = response_v1
+                .json()
+                .await
+                .context("Failed to parse legacy Ollama embedding response")?;
+            ollama_response.embedding
+        } else {
+            let status = response_v2.status();
+            let error_text = response_v2.text().await.unwrap_or_default();
             return Err(anyhow::anyhow!(
                 "Ollama embedding request failed with status {}: {}",
                 status,
                 error_text
             ));
-        }
-
-        let ollama_response: OllamaEmbedResponse = response
-            .json()
-            .await
-            .context("Failed to parse Ollama embedding response")?;
+        };
 
         let latency_ms = start.elapsed().as_millis() as u64;
 
         Ok(EmbeddingResponse {
-            embedding: ollama_response.embedding,
+            embedding,
             dimension: self.dimension,
             model: self.model_name.clone(),
             latency_ms,
@@ -446,22 +496,22 @@ mod tests {
     fn test_ollama_embedding_creation() {
         let embedding = OllamaEmbedding::new(
             "http://localhost:11434".to_string(),
-            "nomic-embed-text".to_string(),
+            "qwen3-embedding:0.6b".to_string(),
             768,
         );
         assert_eq!(embedding.dimension(), 768);
-        assert_eq!(embedding.model_name(), "nomic-embed-text");
+        assert_eq!(embedding.model_name(), "qwen3-embedding:0.6b");
     }
 
     #[test]
     fn test_ollama_chat_creation() {
         let chat = OllamaChat::new(
             "http://localhost:11434".to_string(),
-            "llama2".to_string(),
+            "llama3.2:1b".to_string(),
             0.7,
             2048,
         );
-        assert_eq!(chat.model_name(), "llama2");
+        assert_eq!(chat.model_name(), "llama3.2:1b");
     }
 
     #[tokio::test]
@@ -469,7 +519,7 @@ mod tests {
     async fn test_ollama_health_check() {
         let embedding = OllamaEmbedding::new(
             "http://localhost:11434".to_string(),
-            "nomic-embed-text".to_string(),
+            "qwen3-embedding:0.6b".to_string(),
             768,
         );
         let health = embedding.health_check().await;

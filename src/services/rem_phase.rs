@@ -174,7 +174,7 @@ impl RemPhaseService {
 
         let mut result = RemPhaseResult {
             incomplete_nodes_found: incomplete_nodes.len(),
-            ..RemPhaseResult::default()
+            ..Default::default()
         };
 
         // Phase 1: Process incomplete nodes

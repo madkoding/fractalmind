@@ -28,6 +28,17 @@ pub struct ModelBrain {
     config: BrainConfig,
 }
 
+impl Clone for ModelBrain {
+    fn clone(&self) -> Self {
+        Self {
+            embedding_provider: self.embedding_provider.clone(),
+            chat_provider: self.chat_provider.clone(),
+            summarizer_provider: self.summarizer_provider.clone(),
+            config: self.config.clone(),
+        }
+    }
+}
+
 impl ModelBrain {
     /// Crea un nuevo cerebro desde configuración
     pub async fn new(config: BrainConfig) -> Result<Self> {
@@ -57,10 +68,21 @@ impl ModelBrain {
             summarizer_provider.model_name()
         );
 
-        // Verificar salud de los proveedores
+        // Verificar salud de los proveedores (pero no fallar si no están disponibles)
         info!("Verifying provider health...");
-        Self::verify_providers_health(&embedding_provider, &chat_provider, &summarizer_provider)
-            .await?;
+        match Self::verify_providers_health(
+            &embedding_provider,
+            &chat_provider,
+            &summarizer_provider,
+        )
+        .await
+        {
+            Ok(_) => info!("All providers are healthy"),
+            Err(e) => warn!(
+                "Provider health check failed (system will operate in degraded mode): {}",
+                e
+            ),
+        }
 
         info!("ModelBrain initialized successfully");
 
@@ -96,72 +118,42 @@ impl ModelBrain {
 
     /// Crea un ModelBrain básico solo con Ollama para tests
     pub fn with_ollama_only(base_url: String, embedding_model: String) -> Result<Self> {
-        use crate::models::llm::config::{BrainConfig, ModelConfig, ModelProvider};
+        use crate::models::llm::config::{BrainConfig, ModelProvider};
 
-        use super::config::ModelType;
-        use std::collections::HashMap;
+        let mut config = BrainConfig::default_local();
+        config.prefer_local = true;
 
-        let config = BrainConfig {
-            embedding_model: ModelConfig {
-                model_type: ModelType::Embedding,
-                provider: ModelProvider::Ollama {
-                    base_url: base_url.clone(),
-                    model_name: embedding_model.clone(),
-                    api_key: None,
-                },
-                temperature: 0.0,
-                top_p: 1.0,
-                max_tokens: 0,
-                timeout_seconds: 30,
-                max_retries: 3,
-                extra_config: HashMap::new(),
-            },
-            chat_model: ModelConfig {
-                model_type: ModelType::Chat,
-                provider: ModelProvider::Ollama {
-                    base_url: base_url.clone(),
-                    model_name: "llama2".to_string(),
-                    api_key: None,
-                },
-                temperature: 0.7,
-                top_p: 0.9,
-                max_tokens: 2048,
-                timeout_seconds: 60,
-                max_retries: 2,
-                extra_config: HashMap::new(),
-            },
-            summarizer_model: ModelConfig {
-                model_type: ModelType::Summarizer,
-                provider: ModelProvider::Ollama {
-                    base_url: base_url.clone(),
-                    model_name: "llama2".to_string(),
-                    api_key: None,
-                },
-                temperature: 0.3,
-                top_p: 0.9,
-                max_tokens: 512,
-                timeout_seconds: 45,
-                max_retries: 2,
-                extra_config: HashMap::new(),
-            },
-            prefer_local: true,
-        };
+        if let ModelProvider::Ollama { model_name, .. } = &mut config.embedding_model.provider {
+            *model_name = embedding_model;
+        }
+        if let ModelProvider::Ollama { base_url: url, .. } = &mut config.embedding_model.provider {
+            *url = base_url.clone();
+        }
+        if let ModelProvider::Ollama { base_url: url, .. } = &mut config.chat_model.provider {
+            *url = base_url.clone();
+        }
+        if let ModelProvider::Ollama { base_url: url, .. } = &mut config.summarizer_model.provider {
+            *url = base_url.clone();
+        }
 
-        let embedding_provider =
-            Arc::new(OllamaEmbedding::new(base_url.clone(), embedding_model, 768));
+        let embedding_provider = Arc::new(OllamaEmbedding::new(
+            base_url.clone(),
+            config.embedding_model.provider.model_name(),
+            768,
+        ));
 
         let chat_provider = Arc::new(OllamaChat::new(
             base_url.clone(),
-            "llama2".to_string(),
-            0.7,
-            2048,
+            config.chat_model.provider.model_name(),
+            config.chat_model.temperature,
+            config.chat_model.max_tokens,
         ));
 
         let summarizer_provider = Arc::new(OllamaSummarizer::new(
             base_url,
-            "llama2".to_string(),
-            0.3,
-            512,
+            config.summarizer_model.provider.model_name(),
+            config.summarizer_model.temperature,
+            config.summarizer_model.max_tokens,
         ));
 
         Ok(Self {
@@ -170,6 +162,54 @@ impl ModelBrain {
             summarizer_provider,
             config,
         })
+    }
+
+    /// Crea un ModelBrain desde configuración (público, para reconfiguración)
+    pub fn with_config(config: BrainConfig) -> Result<Self> {
+        info!("Initializing ModelBrain with config: {:?}", config);
+
+        // Validar configuración
+        config.validate()?;
+
+        // Inicializar proveedores sin verificar salud (para permitir rearranque)
+        let embedding_provider = Self::create_embedding_provider(&config.embedding_model)?;
+        let chat_provider = Self::create_chat_provider(&config.chat_model)?;
+        let summarizer_provider = Self::create_summarizer_provider(&config.summarizer_model)?;
+
+        info!("ModelBrain configured successfully");
+
+        Ok(Self {
+            embedding_provider,
+            chat_provider,
+            summarizer_provider,
+            config,
+        })
+    }
+
+    /// Obtiene la configuración actual
+    pub fn get_config(&self) -> &BrainConfig {
+        &self.config
+    }
+
+    /// Verifica salud del provider de embeddings
+    pub async fn check_embedding_provider_health(&self) -> bool {
+        self.embedding_provider
+            .health_check()
+            .await
+            .unwrap_or(false)
+    }
+
+    /// Verifica salud del provider de chat
+    pub async fn check_chat_provider_health(&self) -> bool {
+        self.chat_provider.health_check().await.unwrap_or(false)
+    }
+
+    /// Verifica salud del provider de summarizer
+    pub async fn check_summarizer_provider_health(&self) -> bool {
+        self.summarizer_provider
+            .health_check()
+            .await
+            .unwrap_or(false)
     }
 
     /// Crea un proveedor de embeddings desde configuración
@@ -335,6 +375,7 @@ impl ModelBrain {
     fn infer_embedding_dimension(model_name: &str) -> usize {
         match model_name {
             name if name.contains("nomic-embed-text") => 768,
+            name if name.contains("qwen3-embedding:0.6b") => 768,
             name if name.contains("bge-small") => 384,
             name if name.contains("all-MiniLM") => 384,
             name if name.contains("text-embedding-ada-002") => 1536,
@@ -550,6 +591,10 @@ mod tests {
     fn test_infer_embedding_dimension() {
         assert_eq!(
             ModelBrain::infer_embedding_dimension("nomic-embed-text"),
+            768
+        );
+        assert_eq!(
+            ModelBrain::infer_embedding_dimension("qwen3-embedding:0.6b"),
             768
         );
         assert_eq!(

@@ -363,7 +363,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_temp_file() {
-        let (storage, _temp): (StorageManager, TempDir) = test_storage_manager().await;
+        let (storage, _temp) = test_storage_manager().await;
 
         let path = storage.create_temp_file("test_upload_123").await.unwrap();
         assert!(path.exists());
@@ -372,13 +372,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_append_chunk_with_checksum() {
-        let (storage, _temp): (StorageManager, TempDir) = test_storage_manager().await;
+        let (storage, _temp) = test_storage_manager().await;
 
         storage.create_temp_file("test_upload").await.unwrap();
         storage.preallocate("test_upload", 1024).await.unwrap();
 
         let data = b"Hello, World!";
-        let checksum: String = storage
+        let checksum = storage
             .append_chunk("test_upload", 0, 100, data, None)
             .await
             .unwrap();
@@ -389,7 +389,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_checksum_verification() {
-        let (storage, _temp): (StorageManager, TempDir) = test_storage_manager().await;
+        let (storage, _temp) = test_storage_manager().await;
 
         storage.create_temp_file("test_upload").await.unwrap();
         storage.preallocate("test_upload", 1024).await.unwrap();
@@ -397,19 +397,19 @@ mod tests {
         let data = b"Test data";
 
         // First write to get the correct checksum
-        let correct_checksum: String = storage
+        let correct_checksum = storage
             .append_chunk("test_upload", 0, 100, data, None)
             .await
             .unwrap();
 
         // Should succeed with correct checksum
-        let result: Result<String, anyhow::Error> = storage
+        let result = storage
             .append_chunk("test_upload", 0, 100, data, Some(&correct_checksum))
             .await;
         assert!(result.is_ok());
 
         // Should fail with wrong checksum
-        let result: Result<String, anyhow::Error> = storage
+        let result = storage
             .append_chunk("test_upload", 0, 100, data, Some("wrong_checksum"))
             .await;
         assert!(result.is_err());
@@ -417,7 +417,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_finalize_upload() {
-        let (storage, _temp): (StorageManager, TempDir) = test_storage_manager().await;
+        let (storage, _temp) = test_storage_manager().await;
 
         storage.create_temp_file("test_upload").await.unwrap();
 
@@ -429,7 +429,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cleanup() {
-        let (storage, _temp): (StorageManager, TempDir) = test_storage_manager().await;
+        let (storage, _temp) = test_storage_manager().await;
 
         let temp_path = storage.create_temp_file("test_upload").await.unwrap();
         assert!(temp_path.exists());

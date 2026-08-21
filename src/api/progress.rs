@@ -1,5 +1,7 @@
 //! Progress tracking for long-running ingestion operations.
 
+#![allow(dead_code)]
+
 use axum::{
     response::{
         sse::{Event, KeepAlive, Sse},
@@ -46,7 +48,6 @@ pub struct IngestionProgress {
     pub error: Option<String>,
 }
 
-#[allow(dead_code)]
 impl IngestionProgress {
     pub fn new(session_id: String) -> Self {
         Self {
@@ -108,7 +109,6 @@ pub fn create_progress_tracker() -> ProgressTracker {
 }
 
 /// Registers a new ingestion session and returns the session ID.
-#[allow(dead_code)]
 pub async fn register_session(tracker: &ProgressTracker) -> String {
     let session_id = Uuid::new_v4().to_string();
     let progress = IngestionProgress::new(session_id.clone());
@@ -121,7 +121,6 @@ pub async fn register_session(tracker: &ProgressTracker) -> String {
 }
 
 /// Updates progress for a session.
-#[allow(dead_code)]
 pub async fn update_progress(
     tracker: &ProgressTracker,
     session_id: &str,
@@ -134,7 +133,6 @@ pub async fn update_progress(
 }
 
 /// Gets current progress for a session.
-#[allow(dead_code)]
 pub async fn get_progress(
     tracker: &ProgressTracker,
     session_id: &str,
@@ -144,7 +142,6 @@ pub async fn get_progress(
 }
 
 /// Removes a completed session after a delay (for cleanup).
-#[allow(dead_code)]
 pub async fn cleanup_session(tracker: &ProgressTracker, session_id: String, delay_secs: u64) {
     tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
 
@@ -154,7 +151,6 @@ pub async fn cleanup_session(tracker: &ProgressTracker, session_id: String, dela
 }
 
 /// SSE stream handler for real-time progress updates.
-#[allow(dead_code)]
 pub async fn progress_stream(
     Extension(tracker): Extension<ProgressTracker>,
     axum::extract::Path(session_id): axum::extract::Path<String>,

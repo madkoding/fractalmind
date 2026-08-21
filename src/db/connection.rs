@@ -21,7 +21,8 @@ impl DbConfig {
     /// Carga la configuración desde variables de entorno
     pub fn from_env() -> Result<Self> {
         Ok(Self {
-            url: std::env::var("SURREAL_URL").unwrap_or_else(|_| "ws://localhost:8000".to_string()),
+            url: std::env::var("SURREAL_URL")
+                .unwrap_or_else(|_| "http://localhost:8000".to_string()),
             username: std::env::var("SURREAL_USER").unwrap_or_else(|_| "root".to_string()),
             password: std::env::var("SURREAL_PASS").unwrap_or_else(|_| "root".to_string()),
             namespace: std::env::var("SURREAL_NS").unwrap_or_else(|_| "fractalmind".to_string()),
@@ -34,13 +35,22 @@ impl DbConfig {
 pub async fn connect_db(config: &DbConfig) -> Result<DatabaseConnection> {
     info!("Connecting to SurrealDB at {}", config.url);
 
-    // Extraer host:port de la URL (remover protocolo)
-    let addr = config
-        .url
+    // This client uses HTTP transport. Accept ws/wss inputs for backwards
+    // compatibility and normalize to an HTTP(S) endpoint.
+    let normalized_url = if config.url.starts_with("ws://") {
+        warn!("SURREAL_URL uses ws:// but HTTP client is configured; normalizing to http://");
+        config.url.replacen("ws://", "http://", 1)
+    } else if config.url.starts_with("wss://") {
+        warn!("SURREAL_URL uses wss:// but HTTP client is configured; normalizing to https://");
+        config.url.replacen("wss://", "https://", 1)
+    } else {
+        config.url.clone()
+    };
+
+    // Surreal::new::<Http> expects host:port.
+    let addr = normalized_url
         .trim_start_matches("http://")
-        .trim_start_matches("https://")
-        .trim_start_matches("ws://")
-        .trim_start_matches("wss://");
+        .trim_start_matches("https://");
 
     info!("Connecting to SurrealDB HTTP at {}", addr);
 
@@ -107,7 +117,7 @@ mod tests {
         ];
 
         // Set test values
-        std::env::set_var("SURREAL_URL", "ws://testdb:8000");
+        std::env::set_var("SURREAL_URL", "http://testdb:8000");
         std::env::set_var("SURREAL_USER", "testuser");
         std::env::set_var("SURREAL_PASS", "testpass");
         std::env::set_var("SURREAL_NS", "testns");
@@ -115,7 +125,7 @@ mod tests {
 
         let config = DbConfig::from_env().unwrap();
 
-        assert_eq!(config.url, "ws://testdb:8000");
+        assert_eq!(config.url, "http://testdb:8000");
         assert_eq!(config.username, "testuser");
         assert_eq!(config.password, "testpass");
         assert_eq!(config.namespace, "testns");
@@ -146,7 +156,7 @@ mod tests {
 
         let config = DbConfig::from_env().unwrap();
 
-        assert_eq!(config.url, "ws://localhost:8000");
+        assert_eq!(config.url, "http://localhost:8000");
         assert_eq!(config.username, "root");
 
         // Restore original env vars

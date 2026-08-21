@@ -14,7 +14,7 @@ async-trait = "0.1"
 async-stream = "0.3"
 
 # Web Framework
-axum = { version = "0.7", features = ["macros", "multipart"] }
+axum = { version = "0.7", features = ["macros", "multipart", "ws"] }
 tower = { version = "0.5", features = ["full"] }
 tower-http = { version = "0.5", features = ["trace", "cors", "timeout"] }
 http = "1.1"
@@ -40,7 +40,7 @@ lru = "0.12"
 lazy_static = "1.5"
 
 # HTTP Client (para búsqueda web en fase REM)
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 
 # URL parsing y encoding
 url = "2.5"
@@ -83,12 +83,12 @@ sha2 = "0.10"
 
 # Bytes for streaming uploads
 bytes = "1.5"
-half = "2.7.1"
+half = "2.0"
 
 [dev-dependencies]
 mockall = "0.13"
 criterion = "0.5"
-tempfile = "3.10"
+tempfile = "3"
 
 [features]
 default = []

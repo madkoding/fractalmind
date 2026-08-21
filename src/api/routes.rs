@@ -3,24 +3,81 @@
 #![allow(dead_code)]
 
 use axum::{
-    extract::DefaultBodyLimit,
+    extract::{ws::WebSocketUpgrade, DefaultBodyLimit, State},
     routing::{delete, get, patch, post},
     Router,
 };
 
-use super::handlers::{self, SharedState};
+use super::handlers::{self, SharedState, SystemStatus};
 
 /// Creates the API router with all routes configured
 pub fn create_router(state: SharedState) -> Router {
     Router::new()
         // Health check
         .route("/health", get(handlers::health_check))
+        // WebSocket for real-time status
+        .route("/ws/status", get(ws_status_handler))
         // API v1 routes
         .nest("/v1", api_v1_routes())
         // Stats
         .route("/stats", get(handlers::stats))
         // State
         .with_state(state)
+}
+
+async fn ws_status_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<SharedState>,
+) -> axum::response::Response {
+    let sender = {
+        let state = state.read().await;
+        state.status_sender.clone()
+    };
+    ws.on_upgrade(move |socket| ws_stream(socket, sender))
+}
+
+async fn ws_stream(
+    mut socket: axum::extract::ws::WebSocket,
+    sender: tokio::sync::broadcast::Sender<handlers::SystemStatus>,
+) {
+    let mut subscriber = sender.subscribe();
+
+    // Send initial status immediately with empty services so the UI shows
+    // its local "checking" defaults rather than a misleading "all down" flash.
+    let initial_status = SystemStatus {
+        overall: "checking".to_string(),
+        services: vec![],
+    };
+    let msg = serde_json::to_string(&initial_status).unwrap_or_default();
+    if socket
+        .send(axum::extract::ws::Message::Text(msg))
+        .await
+        .is_err()
+    {
+        return;
+    }
+
+    loop {
+        tokio::select! {
+            result = subscriber.recv() => {
+                match result {
+                    Ok(status) => {
+                        let msg = serde_json::to_string(&status).unwrap_or_default();
+                        if socket.send(axum::extract::ws::Message::Text(msg)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                }
+            }
+            _ = tokio::time::sleep(tokio::time::Duration::from_secs(30)) => {
+                if socket.send(axum::extract::ws::Message::Ping(vec![])).await.is_err() {
+                    break;
+                }
+            }
+        }
+    }
 }
 
 /// API v1 routes
@@ -42,6 +99,9 @@ fn api_v1_routes() -> Router<SharedState> {
         .route("/sync_rem", post(handlers::sync_rem))
         // Memory management
         .route("/memory", patch(handlers::memory_update))
+        // LLM configuration (get and update)
+        .route("/config/llm", patch(handlers::update_llm_config))
+        .route("/config/llm", get(handlers::get_llm_config))
         // Model upload routes
         .nest("/models", model_upload_routes())
 }

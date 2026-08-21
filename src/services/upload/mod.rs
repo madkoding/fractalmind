@@ -164,7 +164,13 @@ impl UploadSessionManager {
         let chunk_size = chunk_size.clamp(self.config.min_chunk_size, self.config.max_chunk_size);
 
         // Create session
-        let session = UploadSession::new(filename, total_size, chunk_size);
+        let mut session = UploadSession::new(filename, total_size, chunk_size);
+        session.temp_path = self
+            .storage
+            .base_path()
+            .join(format!("{}.part", session.upload_id))
+            .to_string_lossy()
+            .to_string();
         let upload_id = session.upload_id.clone();
 
         // Create temp file
@@ -666,9 +672,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_init_upload() {
-        let (manager, _temp): (UploadSessionManager, TempDir) = test_manager().await;
+        let (manager, _temp) = test_manager().await;
 
-        let session: UploadSession = manager
+        let session = manager
             .init_upload("test.gguf".to_string(), 1_000_000, None)
             .await
             .unwrap();
@@ -681,9 +687,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_invalid_file_extension() {
-        let (manager, _temp): (UploadSessionManager, TempDir) = test_manager().await;
+        let (manager, _temp) = test_manager().await;
 
-        let result: Result<UploadSession, anyhow::Error> = manager
+        let result = manager
             .init_upload("test.txt".to_string(), 1_000_000, None)
             .await;
 
@@ -693,15 +699,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_upload_chunk() {
-        let (manager, _temp): (UploadSessionManager, TempDir) = test_manager().await;
+        let (manager, _temp) = test_manager().await;
 
-        let session: UploadSession = manager
+        let session = manager
             .init_upload("test.gguf".to_string(), 1000, Some(100))
             .await
             .unwrap();
 
         let data = bytes::Bytes::from(vec![0u8; 100]);
-        let result: ChunkResult = manager
+        let result = manager
             .upload_chunk(&session.upload_id, 0, data, None)
             .await
             .unwrap();
@@ -713,47 +719,44 @@ mod tests {
 
     #[tokio::test]
     async fn test_complete_upload_flow() {
-        let (manager, _temp): (UploadSessionManager, TempDir) = test_manager().await;
+        let (manager, _temp) = test_manager().await;
 
-        let chunk_size = 100u64;
-        let total_size = 100u64;
+        let chunk_size = MIN_CHUNK_SIZE;
+        let total_size = chunk_size * 3;
 
-        let session: UploadSession = manager
+        let session = manager
             .init_upload("model.gguf".to_string(), total_size, Some(chunk_size))
             .await
             .unwrap();
 
-        // Note: chunk_size is clamped to MIN_CHUNK_SIZE (10MB) in init_upload
-        // So total_chunks will be 1 for a 100 byte file
-        // Upload the only chunk
-        let data = bytes::Bytes::from(vec![0u8; 100]);
-        let result = manager
-            .upload_chunk(&session.upload_id, 0, data, None)
-            .await
-            .unwrap();
+        // Upload all chunks
+        for i in 0..3 {
+            let data = bytes::Bytes::from(vec![i as u8; chunk_size as usize]);
+            manager
+                .upload_chunk(&session.upload_id, i, data, None)
+                .await
+                .unwrap();
+        }
+
+        // Finalize
+        let result = manager.finalize(&session.upload_id).await.unwrap();
 
         assert!(result.success);
-        assert_eq!(result.chunk_index, 0);
-        assert_eq!(result.chunks_received, 1);
-        assert_eq!(result.total_chunks, 1);
-
-        // Verify session is complete
-        let status = manager.get_status(&session.upload_id).await.unwrap();
-        assert!(status.is_complete());
+        assert!(result.model_id.starts_with("model_"));
     }
 
     #[tokio::test]
     async fn test_cancel_upload() {
-        let (manager, _temp): (UploadSessionManager, TempDir) = test_manager().await;
+        let (manager, _temp) = test_manager().await;
 
-        let session: UploadSession = manager
+        let session = manager
             .init_upload("test.gguf".to_string(), 1000, None)
             .await
             .unwrap();
 
         manager.cancel(&session.upload_id).await.unwrap();
 
-        let status: UploadSession = manager.get_status(&session.upload_id).await.unwrap();
+        let status = manager.get_status(&session.upload_id).await.unwrap();
         assert_eq!(status.status, UploadStatus::Cancelled);
     }
 }

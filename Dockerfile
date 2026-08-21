@@ -37,16 +37,16 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy .env and binary from builder
+# Copy .env.example and binary from builder
 COPY --from=builder /app/target/release/fractalmind /app/fractalmind
-COPY .env .env
+COPY .env.example .env
 
 # Expose port
 EXPOSE 9000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD curl -f http://127.0.0.1:3000/health || exit 1
+    CMD curl -f http://127.0.0.1:9000/health || exit 1
 
 # Run the application
 CMD ["/app/fractalmind"]

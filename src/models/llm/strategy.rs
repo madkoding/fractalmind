@@ -3,12 +3,14 @@
 //! Este módulo define las estrategias para utilizar modelos locales (Fractal)
 //! o remotos (Ollama) para generar embeddings, chat y resúmenes.
 
+#![allow(dead_code)]
+
 use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::traits_llm::{ChatMessage, ChatResponse, EmbeddingResponse};
+use super::traits_llm::{ChatMessage, ChatResponse, ChatRole, EmbeddingResponse};
 use crate::db::connection::DatabaseConnection;
 use crate::db::queries::{EdgeRepository, NodeRepository};
 use crate::graph::{GraphNode, Sssp};
@@ -18,7 +20,6 @@ use crate::graph::{GraphNode, Sssp};
 // ============================================================================
 
 /// Configuración para FractalModelStrategy
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct FractalModelStrategyConfig {
     /// Namespace por defecto para búsquedas
@@ -31,6 +32,10 @@ pub struct FractalModelStrategyConfig {
     pub graph_weight: f32,
     /// URL base para Ollama
     pub ollama_base_url: String,
+    /// Nombre del modelo de embedding en Ollama
+    pub ollama_embedding_model: String,
+    /// Dimensión del vector de embedding (depende del modelo)
+    pub ollama_embedding_dimension: usize,
     /// Temperatura para chat
     pub chat_temperature: f32,
     /// Máximo de tokens para chat
@@ -49,6 +54,8 @@ impl Default for FractalModelStrategyConfig {
             vector_weight: 0.7,
             graph_weight: 0.3,
             ollama_base_url: "http://localhost:11434".to_string(),
+            ollama_embedding_model: "nomic-embed-text".to_string(),
+            ollama_embedding_dimension: 768,
             chat_temperature: 0.7,
             chat_max_tokens: 2048,
             summarizer_temperature: 0.3,
@@ -57,7 +64,6 @@ impl Default for FractalModelStrategyConfig {
     }
 }
 
-#[allow(dead_code)]
 impl FractalModelStrategyConfig {
     pub fn new() -> Self {
         Self::default()
@@ -108,10 +114,20 @@ impl FractalModelStrategyConfig {
         let ollama_base_url = std::env::var("OLLAMA_BASE_URL")
             .unwrap_or_else(|_| "http://localhost:11434".to_string());
 
+        let ollama_embedding_model = std::env::var("OLLAMA_EMBEDDING_MODEL")
+            .unwrap_or_else(|_| "nomic-embed-text".to_string());
+
+        let ollama_embedding_dimension = std::env::var("OLLAMA_EMBEDDING_DIMENSION")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(768);
+
         Self {
             default_namespace,
             max_results,
             ollama_base_url,
+            ollama_embedding_model,
+            ollama_embedding_dimension,
             ..Default::default()
         }
     }
@@ -122,7 +138,6 @@ impl FractalModelStrategyConfig {
 // ============================================================================
 
 /// Estrategia para usar modelos (Fractal vs Ollama)
-#[allow(dead_code)]
 #[async_trait]
 pub trait ModelStrategy: Send + Sync {
     /// Genera embeddings usando la estrategia (batch)
@@ -143,14 +158,12 @@ pub trait ModelStrategy: Send + Sync {
 // ============================================================================
 
 /// Estrategia que usa modelos fractales almacenados con navegación por grafo
-#[allow(dead_code)]
 pub struct FractalModelStrategy {
     model_id: String,
     db: Arc<RwLock<DatabaseConnection>>,
     config: FractalModelStrategyConfig,
 }
 
-#[allow(dead_code)]
 impl FractalModelStrategy {
     pub fn new(model_id: String, db: DatabaseConnection) -> Self {
         Self {
@@ -268,12 +281,10 @@ impl FractalModelStrategy {
             .collect())
     }
 
-    #[allow(dead_code)]
     fn get_default_namespace(&self) -> &str {
         &self.config.default_namespace
     }
 
-    #[allow(dead_code)]
     async fn generate_summary_with_context(&self, text: &str) -> Result<String> {
         use super::providers::OllamaSummarizer;
         use super::traits_llm::SummarizerProvider;
@@ -292,28 +303,23 @@ impl FractalModelStrategy {
 #[async_trait]
 impl ModelStrategy for FractalModelStrategy {
     async fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<EmbeddingResponse>> {
-        use crate::embeddings::config::EmbeddingConfig;
-        use crate::embeddings::EmbeddingService;
-        use crate::models::EmbeddingModel;
+        use super::providers::OllamaEmbedding;
+        use super::traits_llm::EmbeddingProvider;
 
-        let config = EmbeddingConfig {
-            model: EmbeddingModel::NomicEmbedTextV15,
-            batch_size: 32,
-            normalize: true,
-            cache_dir: None,
-            device: crate::embeddings::config::EmbeddingDevice::Cpu,
-        };
-        let provider = EmbeddingService::with_mock(config);
+        let provider = OllamaEmbedding::new(
+            self.config.ollama_base_url.clone(),
+            self.config.ollama_embedding_model.clone(),
+            self.config.ollama_embedding_dimension,
+        );
         let embeddings = provider.embed_batch(&texts).await?;
 
         Ok(embeddings
-            .embeddings
             .into_iter()
             .map(|emb| EmbeddingResponse {
-                embedding: emb.vector,
+                embedding: emb.embedding,
                 dimension: emb.dimension,
-                model: self.model_id.clone(),
-                latency_ms: 0,
+                model: self.config.ollama_embedding_model.clone(),
+                latency_ms: emb.latency_ms,
             })
             .collect())
     }
@@ -350,7 +356,11 @@ impl ModelStrategy for FractalModelStrategy {
         };
 
         // Construir mensajes con system prompt
-        let mut enriched_messages = vec![ChatMessage::system(system_prompt)];
+        let mut enriched_messages = vec![ChatMessage {
+            role: ChatRole::System,
+            content: system_prompt,
+        }];
+
         enriched_messages.extend(messages);
 
         // Usar Ollama para generar respuesta
@@ -400,7 +410,6 @@ impl ModelStrategy for FractalModelStrategy {
 // ============================================================================
 
 /// Estrategia que usa Ollama directamente
-#[allow(dead_code)]
 pub struct OllamaModelStrategy {
     base_url: String,
     model_name: String,
@@ -409,7 +418,6 @@ pub struct OllamaModelStrategy {
     max_tokens: u32,
 }
 
-#[allow(dead_code)]
 impl OllamaModelStrategy {
     pub fn new(base_url: String, model_name: String) -> Self {
         Self {
@@ -466,7 +474,15 @@ impl ModelStrategy for OllamaModelStrategy {
 
         let embeddings = provider.embed_batch(&texts).await?;
 
-        Ok(embeddings)
+        Ok(embeddings
+            .into_iter()
+            .map(|emb| EmbeddingResponse {
+                embedding: emb.embedding,
+                dimension: emb.dimension,
+                model: self.model_name.clone(),
+                latency_ms: emb.latency_ms,
+            })
+            .collect())
     }
 
     async fn chat(&self, messages: Vec<ChatMessage>) -> Result<ChatResponse> {
@@ -549,12 +565,13 @@ mod tests {
 
     #[test]
     fn test_fractal_strategy_creation() {
-        use surrealdb::engine::remote::http::Client;
-        use surrealdb::Surreal;
-
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let db = rt.block_on(async { Surreal::<Client>::init() });
-        let strategy = FractalModelStrategy::new("model:123".to_string(), db);
+        // Build strategy with a real config object to validate constructor semantics
+        // without requiring a live database connection in unit tests.
+        let strategy = FractalModelStrategy {
+            model_id: "model:123".to_string(),
+            db: Arc::new(RwLock::new(surrealdb::Surreal::init())),
+            config: FractalModelStrategyConfig::default(),
+        };
         assert_eq!(strategy.name(), "FractalModel");
     }
 

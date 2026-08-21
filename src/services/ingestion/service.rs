@@ -335,7 +335,7 @@ impl IngestionService {
                 // Create metadata
                 let mut metadata = NodeMetadata {
                     tags: input.tags.clone(),
-                    ..NodeMetadata::default()
+                    ..Default::default()
                 };
 
                 if let Some(src) = &input.source {

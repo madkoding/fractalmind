@@ -568,3 +568,58 @@ pub struct CancelUploadResponse {
     pub success: bool,
     pub message: String,
 }
+
+// ============================================================================
+// LLM Configuration API
+// ============================================================================
+
+/// Request to update LLM provider configuration
+#[derive(Deserialize)]
+pub struct UpdateLLMConfigRequest {
+    /// Provider type: "ollama" for local, "ollama-cloud" for Ollama API
+    pub provider_type: String,
+
+    /// Base URL for Ollama (local or cloud)
+    #[serde(default = "default_ollama_base_url")]
+    pub ollama_base_url: String,
+
+    /// API key for Ollama Cloud (optional for local)
+    pub ollama_api_key: Option<String>,
+
+    /// Model names (optional, uses defaults if not provided)
+    pub embedding_model: Option<String>,
+    pub chat_model: Option<String>,
+    pub summarizer_model: Option<String>,
+}
+
+fn default_ollama_base_url() -> String {
+    "http://localhost:11434".to_string()
+}
+
+/// Response from LLM config update
+#[derive(Serialize)]
+pub struct UpdateLLMConfigResponse {
+    pub success: bool,
+    pub message: String,
+    pub config: LLMConfigStatus,
+}
+
+/// Current LLM configuration status
+#[derive(Serialize)]
+pub struct LLMConfigStatus {
+    pub provider_type: String,
+    pub ollama_base_url: String,
+    pub is_cloud: bool,
+    pub embedding_model: String,
+    pub chat_model: String,
+    pub summarizer_model: String,
+    pub health_status: ProviderHealthStatus,
+}
+
+/// Health status of each provider
+#[derive(Serialize)]
+pub struct ProviderHealthStatus {
+    pub embedding: bool,
+    pub chat: bool,
+    pub summarizer: bool,
+}
