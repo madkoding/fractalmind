@@ -121,16 +121,20 @@ impl TextExtractor {
             "utf-16-le" => {
                 // Skip BOM and decode UTF-16 LE
                 let words: Vec<u16> = data[2..]
-                    .chunks_exact(2)
-                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|chunk| u16::from_le_bytes(*chunk))
                     .collect();
                 String::from_utf16_lossy(&words)
             }
             "utf-16-be" => {
                 // Skip BOM and decode UTF-16 BE
                 let words: Vec<u16> = data[2..]
-                    .chunks_exact(2)
-                    .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|chunk| u16::from_be_bytes(*chunk))
                     .collect();
                 String::from_utf16_lossy(&words)
             }
