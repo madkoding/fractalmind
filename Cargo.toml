@@ -40,7 +40,7 @@ lru = "0.12"
 lazy_static = "1.5"
 
 # HTTP Client (para búsqueda web en fase REM)
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.13", features = ["json", "stream"] }
 
 # URL parsing y encoding
 url = "2.5"
