@@ -365,7 +365,7 @@ impl Raptor {
             clusters[cluster_i].merge(&cluster_to_merge);
 
             // Update cluster map: all nodes in cluster_j now point to cluster_i
-            for (_, v) in cluster_map.iter_mut() {
+            for v in cluster_map.values_mut() {
                 if *v == cluster_j {
                     *v = cluster_i;
                 }
