@@ -254,10 +254,8 @@ impl ModelConfig {
                         bail!("API key is required for remote provider");
                     }
                 }
-                ModelProvider::HuggingFace { api_key, .. } => {
-                    if api_key.is_empty() {
-                        bail!("API key is required for remote provider");
-                    }
+                ModelProvider::HuggingFace { api_key, .. } if api_key.is_empty() => {
+                    bail!("API key is required for remote provider");
                 }
                 _ => {}
             }
