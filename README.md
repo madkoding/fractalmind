@@ -290,3 +290,7 @@ MIT
 
 <!-- AUTO-UPDATE-DATE -->
 **Última actualización:** 2026-04-10
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=madkoding/fractalmind&type=Date)](https://star-history.com/#madkoding/fractalmind&Date)
