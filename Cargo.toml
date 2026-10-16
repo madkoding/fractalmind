@@ -79,7 +79,7 @@ byteorder = "1.5"
 memmap2 = "0.9"
 
 # Checksum verification for uploads
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Bytes for streaming uploads
 bytes = "1.5"
